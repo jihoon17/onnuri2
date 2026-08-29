@@ -183,6 +183,30 @@
     font-size: 12px;
     color: rgba(255,255,255,0.85);
   }
+
+  /* 상점가 명칭 라벨(커스텀 오버레이) */
+  .market-label {
+    position: relative;
+    transform: translateY(-42px);
+    background: #1f2d3a;
+    color: #ffffff;
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 700;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+  }
+  .market-label::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -6px;
+    transform: translateX(-50%);
+    border-width: 6px 6px 0 6px;
+    border-style: solid;
+    border-color: #1f2d3a transparent transparent transparent;
+  }
 </style>
 </head>
 <body>
@@ -237,7 +261,8 @@
 
   let map, geocoder;
   let MAP_DATA = { markets: [], parcels: [], zones: [] };
-  let currentOverlays = []; // {polygon, marker}
+  let currentOverlays = []; // {polygon, marker} - 검색 시 갱신/삭제되는 표시
+  let marketLabelOverlays = []; // {marker, overlay} - 상점가 명칭 라벨(항상 유지)
 
   // ---------- 엑셀 원본 읽기 ----------
   async function loadExcelData(url) {
@@ -331,6 +356,56 @@
   function getMarketType(marketName) {
     const m = MAP_DATA.markets.find(m => m.name === marketName);
     return m ? m.type : null;
+  }
+
+  // 좌표 목록 중 위도(lat)가 가장 높은 좌표 반환
+  function getHighestLatPoint(coordsList) {
+    let best = null;
+    coordsList.forEach(c => {
+      if (!best || c.lat > best.lat) best = c;
+    });
+    return best;
+  }
+
+  // 각 상점가(시장)의 구역 경계 중 위도가 가장 높은 지점에 마커 + 명칭 라벨 표시
+  function drawMarketLabels() {
+    marketLabelOverlays.forEach(o => {
+      if (o.marker) o.marker.setMap(null);
+      if (o.overlay) o.overlay.setMap(null);
+    });
+    marketLabelOverlays = [];
+
+    MAP_DATA.markets.forEach(m => {
+      const zones = getZonesForMarket(m.name);
+      if (!zones.length) return;
+
+      const allCoords = zones.flatMap(z => z.coords);
+      const topPoint = getHighestLatPoint(allCoords);
+      if (!topPoint) return;
+
+      const position = new kakao.maps.LatLng(topPoint.lat, topPoint.lng);
+
+      const marker = new kakao.maps.Marker({
+        map,
+        position,
+        zIndex: 20
+      });
+
+      const content = document.createElement("div");
+      content.className = "market-label";
+      content.textContent = m.name;
+
+      const overlay = new kakao.maps.CustomOverlay({
+        map,
+        position,
+        content,
+        yAnchor: 1,
+        xAnchor: 0.5,
+        zIndex: 21
+      });
+
+      marketLabelOverlays.push({ marker, overlay });
+    });
   }
 
   // 검색어와 매칭되는 필지(주소) 목록 (시장명 또는 주소 포함검색)
@@ -526,6 +601,7 @@
     .then(([_, data]) => {
       MAP_DATA = data;
       initMap();
+      drawMarketLabels();
       showInitialAlleyZones();
     })
     .catch((err) => {
