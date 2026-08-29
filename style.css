@@ -1,0 +1,206 @@
+:root{
+  --primary: #3b6ea5;
+  --primary-dark: #2b527d;
+  --primary-light: #eaf1f8;
+  --border: #c9d6e3;
+  --ink: #1f2d3a;
+  --muted: #5b6b7a;
+  --bg: #f5f7fa;
+  --white: #ffffff;
+
+  --zone-default: #3b6ea5;   /* 구역 기본 색 (파란색) */
+  --zone-selected: #123a63;  /* 라벨 클릭 시 선택된 구역 (진한 파란색) */
+  --zone-dimmed: #8fd0f2;    /* 라벨 클릭 시 선택 외 구역 (하늘색) */
+  --highlight: #e02424;      /* 검색된 특정 주소 (빨간색) */
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.app {
+  max-width: 640px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background: var(--white);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 24px rgba(0,0,0,0.06);
+}
+
+/* 검색 영역 */
+.search-bar {
+  display: flex;
+  gap: 8px;
+  padding: 14px;
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+}
+.search-bar input {
+  flex: 1;
+  padding: 12px 14px;
+  font-size: 15px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  outline: none;
+}
+.search-bar input:focus {
+  border-color: var(--primary);
+}
+.search-bar button {
+  padding: 0 22px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--white);
+  background: var(--primary);
+  border: 1px solid var(--primary-dark);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.search-bar button:hover { background: var(--primary-dark); }
+
+/* 검색 결과 헤더 */
+.result-header {
+  background: var(--primary);
+  color: var(--white);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  font-size: 15px;
+}
+.result-count-badge {
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.result-list {
+  max-height: 160px;
+  overflow-y: auto;
+  background: var(--primary-light);
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+}
+.result-item {
+  padding: 9px 16px;
+  border-bottom: 1px solid #dbe6f0;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.result-item:hover { background: #dcebfa; }
+.result-item .r-market { font-weight: 600; color: var(--primary-dark); }
+.result-item .r-addr { color: var(--muted); }
+.result-empty {
+  padding: 14px 16px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+/* 지도 영역 */
+.map-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 420px;
+}
+#map {
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  background: #dfe7ee;
+}
+.map-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13.5px;
+  text-align: center;
+  padding: 24px;
+}
+
+/* 지도를 볼 기준 (범례) */
+.view-criteria {
+  background: var(--primary);
+  color: var(--white);
+  padding: 14px 16px;
+}
+.view-criteria .vc-title {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+.vc-options {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.vc-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.vc-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.6);
+}
+.vc-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.85);
+}
+
+/* 상점가 명칭 라벨(커스텀 오버레이) */
+.market-label {
+  position: relative;
+  transform: translateY(-42px);
+  background: #1f2d3a;
+  color: #ffffff;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.market-label:hover {
+  background: #33465a;
+}
+.market-label.selected {
+  background: var(--zone-selected);
+}
+.market-label::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  transform: translateX(-50%);
+  border-width: 6px 6px 0 6px;
+  border-style: solid;
+  border-color: #1f2d3a transparent transparent transparent;
+}
+.market-label.selected::after {
+  border-color: var(--zone-selected) transparent transparent transparent;
+}
