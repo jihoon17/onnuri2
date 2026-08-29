@@ -165,6 +165,19 @@
     color: var(--primary-dark);
     font-weight: 700;
   }
+  .vc-legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+  }
+  .vc-swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.6);
+  }
   .vc-note {
     margin-top: 10px;
     font-size: 12px;
@@ -195,15 +208,14 @@
     <div id="map"></div>
   </div>
 
-  <!-- 지도를 볼 기준 (자리 표시 / 추후 기능 확장용) -->
+  <!-- 지도를 볼 기준 (색상 범례) -->
   <div class="view-criteria">
     <div class="vc-title">지도를 볼 기준</div>
     <div class="vc-options">
-      <span class="vc-chip" data-mode="parcel">필지 경계</span>
-      <span class="vc-chip active" data-mode="zone">구역 경계</span>
-      <span class="vc-chip" data-mode="both">필지+구역</span>
+      <span class="vc-legend"><i class="vc-swatch" style="background:#3b6ea5"></i>구역(전체 영역)</span>
+      <span class="vc-legend"><i class="vc-swatch" style="background:#e02424"></i>검색된 특정 주소</span>
     </div>
-    <div class="vc-note">※ 표시 기준 영역입니다. 세부 옵션은 추후 확정 예정.</div>
+    <div class="vc-note">주소·지번·상점 이름으로 검색하면 소속 구역은 파란색, 검색된 주소는 빨간색으로 표시됩니다.</div>
   </div>
 
 </div>
@@ -220,13 +232,12 @@
   /* 엑셀 원본 파일 경로 (이 index.html과 같은 폴더/레포에 올려주세요) */
   const EXCEL_FILE_URL = "mapData_v1.xlsx";
 
-  const COLOR_PARCEL = "#3b6ea5";
-  const COLOR_ZONE = "#d97706";
+  const COLOR_ZONE = "#3b6ea5";       // 구역(전체 영역) - 파란색
+  const COLOR_HIGHLIGHT = "#e02424";  // 검색된 특정 주소 - 빨간색
 
   let map, geocoder;
   let MAP_DATA = { markets: [], parcels: [], zones: [] };
   let currentOverlays = []; // {polygon, marker}
-  let viewMode = "zone"; // parcel | zone | both (초기값: 구역 경계)
 
   // ---------- 엑셀 원본 읽기 ----------
   async function loadExcelData(url) {
@@ -338,16 +349,17 @@
     map.setBounds(bounds);
   }
 
-  function drawParcelPolygon(parcel) {
+  function drawHighlightPolygon(parcel) {
     const path = toLatLngPath(parcel.coords);
     const polygon = new kakao.maps.Polygon({
       map,
       path,
-      strokeWeight: 2,
-      strokeColor: COLOR_PARCEL,
-      strokeOpacity: 0.9,
-      fillColor: COLOR_PARCEL,
-      fillOpacity: 0.35
+      strokeWeight: 3,
+      strokeColor: COLOR_HIGHLIGHT,
+      strokeOpacity: 1,
+      fillColor: COLOR_HIGHLIGHT,
+      fillOpacity: 0.55,
+      zIndex: 10
     });
     currentOverlays.push({ polygon });
     return path;
@@ -362,7 +374,8 @@
       strokeColor: COLOR_ZONE,
       strokeOpacity: 0.9,
       fillColor: COLOR_ZONE,
-      fillOpacity: 0.12
+      fillOpacity: 0.4,
+      zIndex: 1
     });
     currentOverlays.push({ polygon });
     return path;
@@ -448,20 +461,19 @@
     });
   }
 
+  // 검색된 주소(들)의 소속 구역을 파란색으로, 검색된 주소 자체는 빨간색으로 겹쳐서 표시
   function focusOnParcels(parcels) {
     clearOverlays();
     const allPaths = [];
 
-    if (viewMode === "parcel" || viewMode === "both") {
-      parcels.forEach(p => allPaths.push(drawParcelPolygon(p)));
-    }
+    // 1) 배경: 소속 구역 전체를 파란색으로 표시
+    const markets = [...new Set(parcels.map(p => p.market))];
+    markets.forEach(m => {
+      getZonesForMarket(m).forEach(z => allPaths.push(drawZonePolygon(z)));
+    });
 
-    if (viewMode === "zone" || viewMode === "both") {
-      const markets = [...new Set(parcels.map(p => p.market))];
-      markets.forEach(m => {
-        getZonesForMarket(m).forEach(z => allPaths.push(drawZonePolygon(z)));
-      });
-    }
+    // 2) 강조: 검색으로 찾은 특정 주소(필지)를 빨간색으로 표시
+    parcels.forEach(p => allPaths.push(drawHighlightPolygon(p)));
 
     fitBoundsToPaths(allPaths);
   }
@@ -507,22 +519,6 @@
   document.getElementById("searchBtn").addEventListener("click", handleSearch);
   document.getElementById("searchInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") handleSearch();
-  });
-
-  document.querySelectorAll(".vc-chip").forEach(chip => {
-    chip.addEventListener("click", () => {
-      document.querySelectorAll(".vc-chip").forEach(c => c.classList.remove("active"));
-      chip.classList.add("active");
-      viewMode = chip.dataset.mode;
-      // 현재 검색 결과가 있다면 다시 그리고, 없으면 초기 전체 구역도로 복귀
-      const query = document.getElementById("searchInput").value;
-      const matched = searchParcels(query);
-      if (matched.length) {
-        focusOnParcels(matched);
-      } else {
-        showInitialAlleyZones();
-      }
-    });
   });
 
   // ---------- 초기화 ----------
