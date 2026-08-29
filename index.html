@@ -187,7 +187,7 @@
     <span class="result-count-badge" id="alleyCountBadge">골목형상점가 0곳</span>
   </div>
   <div class="result-list" id="resultList">
-    <div class="result-empty">검색어를 입력하고 검색 버튼을 눌러주세요.</div>
+    <div class="result-empty">골목형상점가 데이터를 불러오는 중입니다…</div>
   </div>
 
   <!-- 지도 영역 -->
@@ -199,8 +199,8 @@
   <div class="view-criteria">
     <div class="vc-title">지도를 볼 기준</div>
     <div class="vc-options">
-      <span class="vc-chip active" data-mode="parcel">필지 경계</span>
-      <span class="vc-chip" data-mode="zone">구역 경계</span>
+      <span class="vc-chip" data-mode="parcel">필지 경계</span>
+      <span class="vc-chip active" data-mode="zone">구역 경계</span>
       <span class="vc-chip" data-mode="both">필지+구역</span>
     </div>
     <div class="vc-note">※ 표시 기준 영역입니다. 세부 옵션은 추후 확정 예정.</div>
@@ -208,7 +208,7 @@
 
 </div>
 
-<script src="mapData.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
   /* =========================================================
      카카오맵 앱키 설정
@@ -217,12 +217,50 @@
      ========================================================= */
   const KAKAO_APP_KEY = "01a0f8272692845e09fe8d4c402e6317";
 
+  /* 엑셀 원본 파일 경로 (이 index.html과 같은 폴더/레포에 올려주세요) */
+  const EXCEL_FILE_URL = "mapData_v1.xlsx";
+
   const COLOR_PARCEL = "#3b6ea5";
   const COLOR_ZONE = "#d97706";
 
   let map, geocoder;
+  let MAP_DATA = { markets: [], parcels: [], zones: [] };
   let currentOverlays = []; // {polygon, marker}
-  let viewMode = "parcel"; // parcel | zone | both
+  let viewMode = "zone"; // parcel | zone | both (초기값: 구역 경계)
+
+  // ---------- 엑셀 원본 읽기 ----------
+  async function loadExcelData(url) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("EXCEL_FETCH_FAIL");
+    const buf = await resp.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+
+    const overviewRows = XLSX.utils.sheet_to_json(wb.Sheets["시장개요"], { defval: "" });
+    const addrRows = XLSX.utils.sheet_to_json(wb.Sheets["시장별주소"], { defval: "" });
+    const zoneRows = XLSX.utils.sheet_to_json(wb.Sheets["구역"], { defval: "" });
+
+    const markets = overviewRows.map(r => ({
+      id: r["순번"],
+      type: String(r["구분"]).trim(),
+      name: String(r["명칭"]).trim()
+    }));
+
+    const parcels = addrRows.map(r => ({
+      id: r["순번"],
+      market: String(r["소속시장"]).trim(),
+      address: String(r["주소"]).trim(),
+      coords: JSON.parse(r["경계좌표"])
+    }));
+
+    const zones = zoneRows.map(r => ({
+      id: r["순번"],
+      market: String(r["소속시장"]).trim(),
+      zoneNo: r["구역순번"],
+      coords: JSON.parse(r["경계좌표"])
+    }));
+
+    return { markets, parcels, zones };
+  }
 
   function loadKakaoSdk(appkey) {
     return new Promise((resolve, reject) => {
@@ -367,6 +405,49 @@
     });
   }
 
+  // 초기 로딩 시: 골목형상점가 전체 구역도를 지도에 표시
+  function showInitialAlleyZones() {
+    const alleyMarkets = MAP_DATA.markets.filter(m => m.type === "골목형상점가");
+
+    clearOverlays();
+    const allPaths = [];
+    alleyMarkets.forEach(m => {
+      getZonesForMarket(m.name).forEach(z => allPaths.push(drawZonePolygon(z)));
+    });
+    fitBoundsToPaths(allPaths);
+
+    // 결과 패널: 전체 골목형상점가 목록으로 초기 표시
+    const title = document.getElementById("resultTitle");
+    const badge = document.getElementById("alleyCountBadge");
+    const list = document.getElementById("resultList");
+
+    title.textContent = "골목형상점가 전체 구역도";
+    badge.textContent = `골목형상점가 ${alleyMarkets.length}곳`;
+
+    if (!alleyMarkets.length) {
+      list.innerHTML = `<div class="result-empty">표시할 골목형상점가 데이터가 없습니다.</div>`;
+      return;
+    }
+
+    list.innerHTML = alleyMarkets.map(m => {
+      const zoneCount = getZonesForMarket(m.name).length;
+      return `
+        <div class="result-item" data-market="${m.name}">
+          <span class="r-market">${m.name}</span>
+          <span class="r-addr">구역 ${zoneCount}개</span>
+        </div>
+      `;
+    }).join("");
+
+    list.querySelectorAll(".result-item").forEach(el => {
+      el.addEventListener("click", () => {
+        const marketName = el.dataset.market;
+        const relatedParcels = MAP_DATA.parcels.filter(p => p.market === marketName);
+        if (relatedParcels.length) focusOnParcels(relatedParcels);
+      });
+    });
+  }
+
   function focusOnParcels(parcels) {
     clearOverlays();
     const allPaths = [];
@@ -433,21 +514,29 @@
       document.querySelectorAll(".vc-chip").forEach(c => c.classList.remove("active"));
       chip.classList.add("active");
       viewMode = chip.dataset.mode;
-      // 현재 검색 결과가 있다면 다시 그리기
+      // 현재 검색 결과가 있다면 다시 그리고, 없으면 초기 전체 구역도로 복귀
       const query = document.getElementById("searchInput").value;
       const matched = searchParcels(query);
-      if (matched.length) focusOnParcels(matched);
+      if (matched.length) {
+        focusOnParcels(matched);
+      } else {
+        showInitialAlleyZones();
+      }
     });
   });
 
   // ---------- 초기화 ----------
-  loadKakaoSdk(KAKAO_APP_KEY)
-    .then(() => {
+  Promise.all([loadKakaoSdk(KAKAO_APP_KEY), loadExcelData(EXCEL_FILE_URL)])
+    .then(([_, data]) => {
+      MAP_DATA = data;
       initMap();
+      showInitialAlleyZones();
     })
     .catch((err) => {
       if (err.message === "NO_KEY") {
         showFallback("카카오 지도 API 키가 설정되지 않았습니다.");
+      } else if (err.message === "EXCEL_FETCH_FAIL") {
+        showFallback(`엑셀 데이터 파일(${EXCEL_FILE_URL})을 불러오지 못했습니다. index.html과 같은 위치에 파일이 있는지 확인해주세요.`);
       } else {
         showFallback("카카오 지도를 불러오지 못했습니다.");
       }
