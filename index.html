@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>상점가 위치 검색 지도</title>
+<style>
+  :root{
+    --primary: #3b6ea5;
+    --primary-dark: #2b527d;
+    --primary-light: #eaf1f8;
+    --border: #c9d6e3;
+    --ink: #1f2d3a;
+    --muted: #5b6b7a;
+    --bg: #f5f7fa;
+    --white: #ffffff;
+    --accent: #d97706;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .app {
+    max-width: 640px;
+    margin: 0 auto;
+    min-height: 100vh;
+    background: var(--white);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 0 24px rgba(0,0,0,0.06);
+  }
+
+  /* 검색 영역 */
+  .search-bar {
+    display: flex;
+    gap: 8px;
+    padding: 14px;
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+  }
+  .search-bar input {
+    flex: 1;
+    padding: 12px 14px;
+    font-size: 15px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    outline: none;
+  }
+  .search-bar input:focus {
+    border-color: var(--primary);
+  }
+  .search-bar button {
+    padding: 0 22px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--white);
+    background: var(--primary);
+    border: 1px solid var(--primary-dark);
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .search-bar button:hover { background: var(--primary-dark); }
+
+  /* 검색 결과 헤더 */
+  .result-header {
+    background: var(--primary);
+    color: var(--white);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .result-count-badge {
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.5);
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .result-list {
+    max-height: 160px;
+    overflow-y: auto;
+    background: var(--primary-light);
+    border-bottom: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  .result-item {
+    padding: 9px 16px;
+    border-bottom: 1px solid #dbe6f0;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .result-item:hover { background: #dcebfa; }
+  .result-item .r-market { font-weight: 600; color: var(--primary-dark); }
+  .result-item .r-addr { color: var(--muted); }
+  .result-empty {
+    padding: 14px 16px;
+    color: var(--muted);
+    font-size: 13.5px;
+  }
+
+  /* 지도 영역 */
+  .map-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 420px;
+  }
+  #map {
+    width: 100%;
+    height: 100%;
+    min-height: 420px;
+    background: #dfe7ee;
+  }
+  .map-fallback {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 13.5px;
+    text-align: center;
+    padding: 24px;
+  }
+
+  /* 지도를 볼 기준 (범례/뷰 옵션) */
+  .view-criteria {
+    background: var(--primary);
+    color: var(--white);
+    padding: 14px 16px;
+  }
+  .view-criteria .vc-title {
+    font-weight: 700;
+    font-size: 15px;
+    margin-bottom: 10px;
+  }
+  .vc-options {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .vc-chip {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.45);
+    color: var(--white);
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .vc-chip.active {
+    background: var(--white);
+    color: var(--primary-dark);
+    font-weight: 700;
+  }
+  .vc-note {
+    margin-top: 10px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.85);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- 주소/시장 검색 -->
+  <div class="search-bar">
+    <input id="searchInput" type="text" placeholder="주소 또는 시장(상점가) 입력" />
+    <button id="searchBtn">검색</button>
+  </div>
+
+  <!-- 검색 결과 -->
+  <div class="result-header">
+    <span id="resultTitle">검색 결과</span>
+    <span class="result-count-badge" id="alleyCountBadge">골목형상점가 0곳</span>
+  </div>
+  <div class="result-list" id="resultList">
+    <div class="result-empty">검색어를 입력하고 검색 버튼을 눌러주세요.</div>
+  </div>
+
+  <!-- 지도 영역 -->
+  <div class="map-wrap">
+    <div id="map"></div>
+  </div>
+
+  <!-- 지도를 볼 기준 (자리 표시 / 추후 기능 확장용) -->
+  <div class="view-criteria">
+    <div class="vc-title">지도를 볼 기준</div>
+    <div class="vc-options">
+      <span class="vc-chip active" data-mode="parcel">필지 경계</span>
+      <span class="vc-chip" data-mode="zone">구역 경계</span>
+      <span class="vc-chip" data-mode="both">필지+구역</span>
+    </div>
+    <div class="vc-note">※ 표시 기준 영역입니다. 세부 옵션은 추후 확정 예정.</div>
+  </div>
+
+</div>
+
+<script src="mapData.js"></script>
+<script>
+  /* =========================================================
+     카카오맵 앱키 설정
+     -> https://developers.kakao.com 에서 발급받은
+        JavaScript 키를 아래 KAKAO_APP_KEY 에 넣어주세요.
+     ========================================================= */
+  const KAKAO_APP_KEY = "여기에_카카오_JavaScript_키를_입력하세요";
+
+  const COLOR_PARCEL = "#3b6ea5";
+  const COLOR_ZONE = "#d97706";
+
+  let map, geocoder;
+  let currentOverlays = []; // {polygon, marker}
+  let viewMode = "parcel"; // parcel | zone | both
+
+  function loadKakaoSdk(appkey) {
+    return new Promise((resolve, reject) => {
+      if (!appkey || appkey.startsWith("여기에")) {
+        reject(new Error("NO_KEY"));
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${appkey}&autoload=false&libraries=services`;
+      script.onload = () => {
+        kakao.maps.load(() => resolve());
+      };
+      script.onerror = () => reject(new Error("SDK_LOAD_FAIL"));
+      document.head.appendChild(script);
+    });
+  }
+
+  function initMap() {
+    const container = document.getElementById("map");
+    const defaultCenter = new kakao.maps.LatLng(36.4805, 127.2895); // 보람동 일대 중심
+    map = new kakao.maps.Map(container, {
+      center: defaultCenter,
+      level: 5
+    });
+    geocoder = new kakao.maps.services.Geocoder();
+  }
+
+  function showFallback(message) {
+    const wrap = document.querySelector(".map-wrap");
+    const fallback = document.createElement("div");
+    fallback.className = "map-fallback";
+    fallback.innerHTML = `
+      <div>🗺️ ${message}</div>
+      <div>index.html 상단의 <code>KAKAO_APP_KEY</code> 값을<br>
+      카카오 개발자센터에서 발급받은 JavaScript 키로 교체해주세요.</div>
+    `;
+    wrap.appendChild(fallback);
+  }
+
+  // ---------- 데이터 헬퍼 ----------
+  function toLatLngPath(coords) {
+    return coords.map(c => new kakao.maps.LatLng(c.lat, c.lng));
+  }
+
+  function clearOverlays() {
+    currentOverlays.forEach(o => {
+      if (o.polygon) o.polygon.setMap(null);
+      if (o.marker) o.marker.setMap(null);
+    });
+    currentOverlays = [];
+  }
+
+  function getZonesForMarket(marketName) {
+    return MAP_DATA.zones.filter(z => z.market === marketName);
+  }
+
+  function getMarketType(marketName) {
+    const m = MAP_DATA.markets.find(m => m.name === marketName);
+    return m ? m.type : null;
+  }
+
+  // 검색어와 매칭되는 필지(주소) 목록 (시장명 또는 주소 포함검색)
+  function searchParcels(query) {
+    const q = query.trim();
+    if (!q) return [];
+    return MAP_DATA.parcels.filter(p =>
+      p.market.includes(q) || p.address.includes(q) || q.includes(p.market)
+    );
+  }
+
+  function fitBoundsToPaths(paths) {
+    if (!paths.length) return;
+    const bounds = new kakao.maps.LatLngBounds();
+    paths.forEach(path => path.forEach(ll => bounds.extend(ll)));
+    map.setBounds(bounds);
+  }
+
+  function drawParcelPolygon(parcel) {
+    const path = toLatLngPath(parcel.coords);
+    const polygon = new kakao.maps.Polygon({
+      map,
+      path,
+      strokeWeight: 2,
+      strokeColor: COLOR_PARCEL,
+      strokeOpacity: 0.9,
+      fillColor: COLOR_PARCEL,
+      fillOpacity: 0.35
+    });
+    currentOverlays.push({ polygon });
+    return path;
+  }
+
+  function drawZonePolygon(zone) {
+    const path = toLatLngPath(zone.coords);
+    const polygon = new kakao.maps.Polygon({
+      map,
+      path,
+      strokeWeight: 2,
+      strokeColor: COLOR_ZONE,
+      strokeOpacity: 0.9,
+      fillColor: COLOR_ZONE,
+      fillOpacity: 0.12
+    });
+    currentOverlays.push({ polygon });
+    return path;
+  }
+
+  function renderResultList(parcels) {
+    const list = document.getElementById("resultList");
+    const title = document.getElementById("resultTitle");
+    const badge = document.getElementById("alleyCountBadge");
+
+    if (!parcels.length) {
+      list.innerHTML = `<div class="result-empty">일치하는 결과가 없습니다. 시장명(예: 보람동 호려울) 또는 지번 주소로 검색해보세요.</div>`;
+      title.textContent = "검색 결과";
+      badge.textContent = "골목형상점가 0곳";
+      return;
+    }
+
+    title.textContent = `검색 결과 (${parcels.length}건)`;
+
+    // 매칭된 결과에 포함된 시장 중 '골목형상점가' 유형만 개수 카운트
+    const matchedMarkets = [...new Set(parcels.map(p => p.market))];
+    const alleyCount = matchedMarkets.filter(
+      m => getMarketType(m) === "골목형상점가"
+    ).length;
+    badge.textContent = `골목형상점가 ${alleyCount}곳`;
+
+    list.innerHTML = parcels.map(p => `
+      <div class="result-item" data-market="${p.market}" data-id="${p.id}">
+        <span class="r-market">${p.market}</span>
+        <span class="r-addr">${p.address}</span>
+      </div>
+    `).join("");
+
+    list.querySelectorAll(".result-item").forEach(el => {
+      el.addEventListener("click", () => {
+        const id = Number(el.dataset.id);
+        const parcel = MAP_DATA.parcels.find(p => p.id === id);
+        if (parcel) focusOnParcels([parcel]);
+      });
+    });
+  }
+
+  function focusOnParcels(parcels) {
+    clearOverlays();
+    const allPaths = [];
+
+    if (viewMode === "parcel" || viewMode === "both") {
+      parcels.forEach(p => allPaths.push(drawParcelPolygon(p)));
+    }
+
+    if (viewMode === "zone" || viewMode === "both") {
+      const markets = [...new Set(parcels.map(p => p.market))];
+      markets.forEach(m => {
+        getZonesForMarket(m).forEach(z => allPaths.push(drawZonePolygon(z)));
+      });
+    }
+
+    fitBoundsToPaths(allPaths);
+  }
+
+  function geocodeFallbackSearch(query) {
+    if (!geocoder) return;
+    geocoder.addressSearch(query, (result, status) => {
+      if (status === kakao.maps.services.Status.OK && result[0]) {
+        const coords = new kakao.maps.LatLng(result[0].y, result[0].x);
+        clearOverlays();
+        map.setCenter(coords);
+        map.setLevel(4);
+        const marker = new kakao.maps.Marker({ map, position: coords });
+        currentOverlays.push({ marker });
+
+        const list = document.getElementById("resultList");
+        list.innerHTML = `<div class="result-empty">등록된 상점가 데이터에는 없는 주소입니다. 입력하신 주소 위치로 지도를 이동했습니다.</div>`;
+        document.getElementById("resultTitle").textContent = "검색 결과";
+        document.getElementById("alleyCountBadge").textContent = "골목형상점가 0곳";
+      } else {
+        const list = document.getElementById("resultList");
+        list.innerHTML = `<div class="result-empty">검색 결과가 없습니다. 시장명 또는 정확한 주소를 입력해주세요.</div>`;
+        document.getElementById("resultTitle").textContent = "검색 결과";
+        document.getElementById("alleyCountBadge").textContent = "골목형상점가 0곳";
+      }
+    });
+  }
+
+  function handleSearch() {
+    const query = document.getElementById("searchInput").value;
+    if (!query.trim()) return;
+
+    const matched = searchParcels(query);
+    renderResultList(matched);
+
+    if (matched.length) {
+      focusOnParcels(matched);
+    } else if (map) {
+      geocodeFallbackSearch(query);
+    }
+  }
+
+  document.getElementById("searchBtn").addEventListener("click", handleSearch);
+  document.getElementById("searchInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleSearch();
+  });
+
+  document.querySelectorAll(".vc-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      document.querySelectorAll(".vc-chip").forEach(c => c.classList.remove("active"));
+      chip.classList.add("active");
+      viewMode = chip.dataset.mode;
+      // 현재 검색 결과가 있다면 다시 그리기
+      const query = document.getElementById("searchInput").value;
+      const matched = searchParcels(query);
+      if (matched.length) focusOnParcels(matched);
+    });
+  });
+
+  // ---------- 초기화 ----------
+  loadKakaoSdk(KAKAO_APP_KEY)
+    .then(() => {
+      initMap();
+    })
+    .catch((err) => {
+      if (err.message === "NO_KEY") {
+        showFallback("카카오 지도 API 키가 설정되지 않았습니다.");
+      } else {
+        showFallback("카카오 지도를 불러오지 못했습니다.");
+      }
+    });
+</script>
+</body>
+</html>
