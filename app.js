@@ -408,6 +408,76 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") handleSearch();
 });
 
+/* -------- 초기화 버튼: 사이트 첫 진입 상태로 복귀 -------- */
+function resetToInitialView() {
+  document.getElementById("searchInput").value = "";
+  clearHighlights();
+  selectedMarket = null;
+  applyZoneColorState();
+  renderInitialOverview();
+
+  if (MAP_DATA.zones.length) {
+    const allPaths = MAP_DATA.zones.map(z => toLatLngPath(z.coords));
+    fitBoundsToPaths(allPaths);
+  }
+}
+
+document.getElementById("resetBtn").addEventListener("click", resetToInitialView);
+
+/* -------- 마이크 음성 검색 -------- */
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let isListening = false;
+
+if (SpeechRecognitionCtor) {
+  recognition = new SpeechRecognitionCtor();
+  recognition.lang = "ko-KR";
+  recognition.continuous = false;
+  recognition.interimResults = false;
+
+  recognition.onstart = () => {
+    isListening = true;
+    document.getElementById("micBtn").classList.add("listening");
+  };
+
+  recognition.onend = () => {
+    isListening = false;
+    document.getElementById("micBtn").classList.remove("listening");
+  };
+
+  recognition.onerror = () => {
+    isListening = false;
+    document.getElementById("micBtn").classList.remove("listening");
+  };
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript.trim();
+    if (transcript) {
+      document.getElementById("searchInput").value = transcript;
+      handleSearch();
+    }
+  };
+} else {
+  const micBtn = document.getElementById("micBtn");
+  micBtn.disabled = true;
+  micBtn.title = "이 브라우저는 음성 검색을 지원하지 않습니다.";
+  micBtn.style.opacity = "0.4";
+  micBtn.style.cursor = "not-allowed";
+}
+
+document.getElementById("micBtn").addEventListener("click", () => {
+  if (!recognition) return;
+  if (isListening) {
+    recognition.stop();
+  } else {
+    try {
+      recognition.start();
+    } catch (e) {
+      // 이미 시작된 상태 등 예외는 무시
+    }
+  }
+});
+
 /* =========================================================
    9. 초기화
    ========================================================= */
