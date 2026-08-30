@@ -21,9 +21,9 @@ let MAP_DATA = { markets: [], parcels: [], zones: [] };
 let zoneOverlaysByMarket = {};  // marketName -> [kakao.maps.Polygon, ...] (항상 유지되는 구역 배경)
 let marketLabelOverlays = [];   // { marketName, marker, overlay, content } (항상 유지되는 라벨)
 let highlightOverlays = [];     // { polygon, marker } (검색 시에만 갱신/삭제되는 강조 표시)
-let pickedLocations = []; // [{ id, marker, overlay, latlng, jibunFull, roadFull }] (우클릭/꾹 누르기 핀, 여러 개 가능)
+let pickedLocations = []; // [{ id, marker, overlay, latlng, jibunFull, roadFull, areaKey }] (우클릭/꾹 누르기 핀, 여러 개 가능)
 let pickedLocationIdSeq = 0;
-
+let pickedAreaPolygons = {}; // areaKey -> { polygon, hitCoords, refCount } (같은 구역 보라색은 하나만)
 let selectedMarket = null;      // 라벨 클릭으로 선택된 상점가 (null이면 선택 없음)
 
 /* =========================================================
@@ -413,12 +413,66 @@ function makeCircleCoords(centerLat, centerLng, radiusMeters, steps) {
   return coords;
 }
 
+function getAreaKey(key) {
+  if (!key) return key;
+  if (key.startsWith("free|")) return key;
+  const parts = key.split("|");
+  // parcel|market|address|lat|lng  /  zone|market|zoneNo|lat|lng
+  if (parts[0] === "parcel" && parts.length >= 3) return `parcel|${parts[1]}|${parts[2]}`;
+  if (parts[0] === "zone" && parts.length >= 3) return `zone|${parts[1]}|${parts[2]}`;
+  return key;
+}
+
+function ensureAreaPolygon(areaKey, hitCoords) {
+  if (pickedAreaPolygons[areaKey]) {
+    pickedAreaPolygons[areaKey].refCount += 1;
+    return pickedAreaPolygons[areaKey];
+  }
+  const polygon = new kakao.maps.Polygon({
+    map,
+    path: toLatLngPath(hitCoords),
+    strokeWeight: 2,
+    strokeColor: "#6b21a8",
+    strokeOpacity: 0.95,
+    fillColor: "#6b21a8",
+    fillOpacity: 0.32,
+    zIndex: 40
+  });
+  kakao.maps.event.addListener(polygon, "click", () => {
+    removeLastPickedInArea(areaKey);
+  });
+  pickedAreaPolygons[areaKey] = { polygon, hitCoords, refCount: 1 };
+  return pickedAreaPolygons[areaKey];
+}
+
+function releaseAreaPolygon(areaKey) {
+  const entry = pickedAreaPolygons[areaKey];
+  if (!entry) return;
+  entry.refCount -= 1;
+  if (entry.refCount <= 0) {
+    if (entry.polygon) entry.polygon.setMap(null);
+    delete pickedAreaPolygons[areaKey];
+  }
+}
+
+function removeLastPickedInArea(areaKey) {
+  for (let i = pickedLocations.length - 1; i >= 0; i--) {
+    if (pickedLocations[i].areaKey === areaKey) {
+      removePickedLocationById(pickedLocations[i].id);
+      return;
+    }
+  }
+}
+
 function clearPickedLocation() {
   pickedLocations.forEach((item) => {
     if (item.marker) item.marker.setMap(null);
     if (item.overlay) item.overlay.setMap(null);
-    if (item.hitPolygon) item.hitPolygon.setMap(null);
   });
+  Object.keys(pickedAreaPolygons).forEach((k) => {
+    if (pickedAreaPolygons[k].polygon) pickedAreaPolygons[k].polygon.setMap(null);
+  });
+  pickedAreaPolygons = {};
   pickedLocations = [];
 }
 
@@ -429,7 +483,7 @@ function removePickedLocationById(id) {
   const item = pickedLocations[idx];
   if (item.marker) item.marker.setMap(null);
   if (item.overlay) item.overlay.setMap(null);
-  if (item.hitPolygon) item.hitPolygon.setMap(null);
+  if (item.areaKey) releaseAreaPolygon(item.areaKey);
   pickedLocations.splice(idx, 1);
 
   if (pickedLocations.length === 0) {
@@ -479,13 +533,14 @@ function removePickedAtLatLng(latlng) {
     removePickedLocationById(near.id);
     return true;
   }
-  // 2) 보라색 영역 안이면 (나중에 찍은 것부터) 제거
+  // 2) 보라색 영역 안이면 그 영역의 가장 최근 핀 제거
   const lat = latlng.getLat();
   const lng = latlng.getLng();
-  for (let i = pickedLocations.length - 1; i >= 0; i--) {
-    const item = pickedLocations[i];
-    if (item.hitCoords && pointInPolygon(lat, lng, item.hitCoords)) {
-      removePickedLocationById(item.id);
+  const areaKeys = Object.keys(pickedAreaPolygons);
+  for (let i = areaKeys.length - 1; i >= 0; i--) {
+    const entry = pickedAreaPolygons[areaKeys[i]];
+    if (entry.hitCoords && pointInPolygon(lat, lng, entry.hitCoords)) {
+      removeLastPickedInArea(areaKeys[i]);
       return true;
     }
   }
@@ -594,19 +649,11 @@ function handleMapClick(latlng) {
 function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parcelAddress, key }) {
   // 좌표를 다시 숫자로 복사해 새 LatLng 생성 (참조/변형 문제 방지)
   const pos = new kakao.maps.LatLng(center.getLat(), center.getLng());
-
   const id = ++pickedLocationIdSeq;
+  const areaKey = getAreaKey(key);
 
-  const hitPolygon = new kakao.maps.Polygon({
-    map,
-    path: toLatLngPath(hitCoords),
-    strokeWeight: 2,
-    strokeColor: "#6b21a8",
-    strokeOpacity: 0.95,
-    fillColor: "#6b21a8",
-    fillOpacity: 0.32,
-    zIndex: 40
-  });
+  // 같은 구역/필지는 보라색 폴리곤을 하나만 유지 (겹쳐서 진해지지 않음)
+  ensureAreaPolygon(areaKey, hitCoords);
 
   const marker = new kakao.maps.Marker({
     map,
@@ -632,7 +679,6 @@ function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parce
 
   const removeThis = () => removePickedLocationById(id);
 
-  kakao.maps.event.addListener(hitPolygon, "click", removeThis);
   kakao.maps.event.addListener(marker, "click", removeThis);
   content.addEventListener("click", (e) => {
     e.preventDefault();
@@ -644,7 +690,7 @@ function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parce
     id,
     marker,
     overlay,
-    hitPolygon,
+    areaKey,
     hitCoords,
     latlng: pos,
     jibunFull: jibunFull || "",
