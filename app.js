@@ -22,6 +22,7 @@ let MAP_DATA = { markets: [], parcels: [], zones: [] };
 let zoneOverlaysByMarket = {};  // marketName -> [kakao.maps.Polygon, ...] (항상 유지되는 구역 배경)
 let marketLabelOverlays = [];   // { marketName, marker, overlay, content } (항상 유지되는 라벨)
 let highlightOverlays = [];     // { polygon, marker } (검색 시에만 갱신/삭제되는 강조 표시)
+let pickedLocationOverlay = null; // { marker, overlay } (우클릭/꾹 누르기로 찍은 위치 핀)
 
 let selectedMarket = null;      // 라벨 클릭으로 선택된 상점가 (null이면 선택 없음)
 
@@ -88,6 +89,45 @@ function initMap() {
     level: 5
   });
   geocoder = new kakao.maps.services.Geocoder();
+
+  // 우클릭(PC) - 카카오맵 rightclick 이벤트
+  kakao.maps.event.addListener(map, "rightclick", (mouseEvent) => {
+    handleMapPick(mouseEvent.latLng);
+  });
+
+  // 브라우저 기본 우클릭 메뉴는 표시하지 않음
+  container.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // 꾹 누르기(모바일) - 터치 길게 누르기 직접 구현
+  let longPressTimer = null;
+  let longPressStartXY = null;
+
+  container.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    longPressStartXY = { x: touch.clientX, y: touch.clientY };
+
+    longPressTimer = setTimeout(() => {
+      const rect = container.getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      const latlng = map.getProjection().coordsFromContainerPoint(new kakao.maps.Point(x, y));
+      handleMapPick(latlng);
+    }, 550);
+  }, { passive: true });
+
+  const cancelLongPress = (e) => {
+    if (longPressTimer && longPressStartXY && e.changedTouches && e.changedTouches[0]) {
+      const touch = e.changedTouches[0];
+      const moved = Math.abs(touch.clientX - longPressStartXY.x) + Math.abs(touch.clientY - longPressStartXY.y);
+      if (moved > 12) clearTimeout(longPressTimer);
+    } else if (longPressTimer) {
+      clearTimeout(longPressTimer);
+    }
+  };
+  container.addEventListener("touchmove", cancelLongPress, { passive: true });
+  container.addEventListener("touchend", () => clearTimeout(longPressTimer));
+  container.addEventListener("touchcancel", () => clearTimeout(longPressTimer));
 }
 
 function showFallback(message) {
@@ -192,17 +232,10 @@ function applyZoneColorState() {
 }
 
 // 라벨 클릭: 클릭한 상점가 구역은 진한 파란색, 나머지는 하늘색. 같은 라벨 다시 클릭 시 기본 상태로 복귀
+// 지도의 줌 레벨/범위는 변경하지 않고 색상만 바꿈
 function selectMarketByLabel(marketName) {
   selectedMarket = (selectedMarket === marketName) ? null : marketName;
   applyZoneColorState();
-
-  if (selectedMarket) {
-    const paths = getZonesForMarket(selectedMarket).map(z => toLatLngPath(z.coords));
-    fitBoundsToPaths(paths);
-  } else {
-    const paths = MAP_DATA.zones.map(z => toLatLngPath(z.coords));
-    fitBoundsToPaths(paths);
-  }
 }
 
 /* =========================================================
@@ -289,12 +322,104 @@ function focusOnParcels(parcels) {
 }
 
 /* =========================================================
+   6-1. 우클릭(PC) / 꾹 누르기(모바일) - 임의 위치 핀 찍기
+   ========================================================= */
+function clearPickedLocation() {
+  if (pickedLocationOverlay) {
+    if (pickedLocationOverlay.marker) pickedLocationOverlay.marker.setMap(null);
+    if (pickedLocationOverlay.overlay) pickedLocationOverlay.overlay.setMap(null);
+    pickedLocationOverlay = null;
+  }
+}
+
+// 전체 주소에서 맨 앞의 시/도 이름만 제거 (예: "세종특별자치시 보람동 721" -> "보람동 721")
+function stripCityName(fullAddress, cityName) {
+  if (!fullAddress) return "";
+  if (cityName && fullAddress.startsWith(cityName)) {
+    return fullAddress.slice(cityName.length).trim();
+  }
+  return fullAddress;
+}
+
+function handleMapPick(latlng) {
+  if (!geocoder) return;
+
+  geocoder.coord2Address(latlng.getLng(), latlng.getLat(), (result, status) => {
+    if (status === kakao.maps.services.Status.OK && result[0]) {
+      showPickedLocation(latlng, result[0]);
+    } else {
+      showPickedLocation(latlng, null);
+    }
+  });
+}
+
+function showPickedLocation(latlng, addrResult) {
+  clearPickedLocation();
+
+  let jibunFull = "";
+  let roadFull = "";
+  let labelText = "선택한 위치";
+
+  if (addrResult) {
+    if (addrResult.address) {
+      jibunFull = addrResult.address.address_name;
+      labelText = stripCityName(jibunFull, addrResult.address.region_1depth_name) || jibunFull;
+    }
+    if (addrResult.road_address) {
+      roadFull = addrResult.road_address.address_name;
+    }
+  }
+
+  const marker = new kakao.maps.Marker({
+    map,
+    position: latlng,
+    zIndex: 30
+  });
+
+  const content = document.createElement("div");
+  content.className = "market-label picked-label";
+  content.textContent = labelText;
+
+  const overlay = new kakao.maps.CustomOverlay({
+    map,
+    position: latlng,
+    content,
+    yAnchor: 1,
+    xAnchor: 0.5,
+    zIndex: 31
+  });
+
+  pickedLocationOverlay = { marker, overlay };
+
+  renderPickedLocationDetails(latlng, jibunFull, roadFull);
+}
+
+function renderPickedLocationDetails(latlng, jibunFull, roadFull) {
+  const title = document.getElementById("resultTitle");
+  const badge = document.getElementById("alleyCountBadge");
+  const list = document.getElementById("resultList");
+
+  title.textContent = "선택한 위치 상세정보";
+  badge.style.display = "none";
+
+  list.innerHTML = `
+    <div class="detail-block">
+      <div class="detail-row"><span class="d-label">지번주소</span><span class="d-value">${jibunFull || "확인되지 않음"}</span></div>
+      <div class="detail-row"><span class="d-label">도로명주소</span><span class="d-value">${roadFull || "확인되지 않음"}</span></div>
+      <div class="detail-row"><span class="d-label">위도</span><span class="d-value">${latlng.getLat().toFixed(6)}</span></div>
+      <div class="detail-row"><span class="d-label">경도</span><span class="d-value">${latlng.getLng().toFixed(6)}</span></div>
+    </div>
+  `;
+}
+
+/* =========================================================
    7. 결과 패널 렌더링
    ========================================================= */
 function renderResultList(parcels) {
   const list = document.getElementById("resultList");
   const title = document.getElementById("resultTitle");
   const badge = document.getElementById("alleyCountBadge");
+  badge.style.display = "";
 
   if (!parcels.length) {
     list.innerHTML = `<div class="result-empty">일치하는 결과가 없습니다. 시장명(예: 보람동 호려울) 또는 지번 주소로 검색해보세요.</div>`;
@@ -332,6 +457,7 @@ function renderInitialOverview() {
   const title = document.getElementById("resultTitle");
   const badge = document.getElementById("alleyCountBadge");
   const list = document.getElementById("resultList");
+  badge.style.display = "";
 
   title.textContent = "골목형상점가 전체 구역도";
   badge.textContent = `골목형상점가 ${alleyMarkets.length}곳`;
@@ -379,11 +505,13 @@ function geocodeFallbackSearch(query) {
       const list = document.getElementById("resultList");
       list.innerHTML = `<div class="result-empty">등록된 상점가 데이터에는 없는 주소입니다. 입력하신 주소 위치로 지도를 이동했습니다.</div>`;
       document.getElementById("resultTitle").textContent = "검색 결과";
+      document.getElementById("alleyCountBadge").style.display = "";
       document.getElementById("alleyCountBadge").textContent = "골목형상점가 0곳";
     } else {
       const list = document.getElementById("resultList");
       list.innerHTML = `<div class="result-empty">검색 결과가 없습니다. 시장명 또는 정확한 주소를 입력해주세요.</div>`;
       document.getElementById("resultTitle").textContent = "검색 결과";
+      document.getElementById("alleyCountBadge").style.display = "";
       document.getElementById("alleyCountBadge").textContent = "골목형상점가 0곳";
     }
   });
@@ -412,6 +540,7 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
 function resetToInitialView() {
   document.getElementById("searchInput").value = "";
   clearHighlights();
+  clearPickedLocation();
   selectedMarket = null;
   applyZoneColorState();
   renderInitialOverview();
