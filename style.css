@@ -23,6 +23,7 @@ html, body {
   color: var(--ink);
 }
 
+/* ---------- 기본(모바일): 위아래 1단 ---------- */
 .app {
   max-width: 640px;
   margin: 0 auto;
@@ -33,61 +34,72 @@ html, body {
   box-shadow: 0 0 24px rgba(0,0,0,0.06);
 }
 
+.side-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.map-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 /* 검색 영역 */
 .search-bar {
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 14px;
   background: var(--white);
   border-bottom: 1px solid var(--border);
 }
-.search-input-wrap {
-  position: relative;
-  flex: 1 1 auto;
-  max-width: 62%;
-}
-.search-input-wrap input {
-  width: 100%;
-  padding: 12px 42px 12px 14px;
+.search-bar input {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 12px 14px;
   font-size: 15px;
   border: 2px solid var(--ink);
   border-radius: 8px;
   outline: none;
 }
-.search-input-wrap input:focus {
+.search-bar input:focus {
   border-color: var(--primary);
 }
-.mic-btn {
-  position: absolute;
-  top: 50%;
-  right: 6px;
-  transform: translateY(-50%);
-  width: 30px;
-  height: 30px;
+
+/* 마이크 버튼: 입력창과 겹치지 않는 독립 버튼 */
+.icon-btn {
+  flex: 0 0 auto;
+  width: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  border-radius: 6px;
-  background: var(--primary-light);
-  color: var(--primary-dark);
+  border: 1px solid var(--primary-dark);
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--white);
   cursor: pointer;
 }
-.mic-btn:hover {
-  background: #dcebfa;
-}
-.mic-btn.listening {
-  background: var(--highlight, #e02424);
-  color: var(--white);
+.icon-btn:hover { background: var(--primary-dark); }
+.icon-btn.listening {
+  background: var(--highlight);
+  border-color: #a51c1c;
   animation: mic-pulse 1s infinite;
+}
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 @keyframes mic-pulse {
   0%   { box-shadow: 0 0 0 0 rgba(224,36,36,0.45); }
   70%  { box-shadow: 0 0 0 8px rgba(224,36,36,0); }
   100% { box-shadow: 0 0 0 0 rgba(224,36,36,0); }
 }
+
 .search-bar button {
+  flex: 0 0 auto;
   padding: 0 18px;
   font-size: 15px;
   font-weight: 600;
@@ -245,4 +257,60 @@ html, body {
 }
 .market-label.selected::after {
   border-color: var(--zone-selected) transparent transparent transparent;
+}
+
+/* ---------- 데스크톱(PC): 화면을 꽉 채우는 좌우 2단 레이아웃 ---------- */
+@media (min-width: 960px) {
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 16px;
+  }
+
+  .app {
+    flex-direction: row;
+    width: 100%;
+    max-width: 1600px;
+    height: calc(100vh - 32px);
+    max-height: 1000px;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .side-panel {
+    flex: 0 0 400px;
+    max-width: 400px;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+
+  .result-list {
+    max-height: none;
+    flex: 1;
+  }
+
+  .map-panel {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .map-wrap {
+    min-height: 0;
+  }
+
+  #map {
+    min-height: 0;
+  }
+}
+
+@media (min-width: 1280px) {
+  .side-panel {
+    flex-basis: 440px;
+    max-width: 440px;
+  }
+  .search-bar input {
+    font-size: 16px;
+  }
 }
