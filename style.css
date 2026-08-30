@@ -56,40 +56,66 @@ html, body {
   border-bottom: 1px solid var(--border);
 }
 
-.search-bar input {
-  flex: 1 1 140px;
+/* 입력창 + 마이크를 하나로 묶은 래퍼 (Grok 검색창 스타일) */
+.search-input-wrap {
+  position: relative;
+  flex: 1 1 160px;
   min-width: 0;
-  padding: 12px 14px;
-  font-size: 15px;
-  border: 2px solid var(--ink);
-  border-radius: 8px;
-  outline: none;
-}
-.search-bar input:focus {
-  border-color: var(--primary);
+  display: flex;
+  align-items: center;
 }
 
-/* 마이크 버튼: 입력창과 완전히 분리된 독립 버튼 */
+.search-input-wrap input {
+  width: 100%;
+  padding: 12px 44px 12px 14px; /* 오른쪽 마이크 공간 확보 */
+  font-size: 15px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  outline: none;
+  background: var(--white);
+  color: var(--ink);
+}
+.search-input-wrap input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59, 110, 165, 0.15);
+}
+
+/* 마이크 버튼: 검색창 안쪽 오른쪽에 배치 */
 .mic-btn {
-  flex: 0 0 auto;
-  width: 44px;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 10px;
-  background: var(--primary);
-  color: var(--white);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease, background 0.15s ease;
+  z-index: 2;
 }
-.mic-btn:hover { background: var(--primary-dark); }
+.mic-btn:hover {
+  color: var(--primary);
+  background: var(--primary-light);
+}
 .mic-btn.listening {
+  color: #fff;
   background: var(--highlight);
   animation: mic-pulse 1s infinite;
 }
 .mic-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
+}
+.mic-btn:disabled:hover {
+  color: var(--muted);
+  background: transparent;
 }
 @keyframes mic-pulse {
   0%   { box-shadow: 0 0 0 0 rgba(224,36,36,0.45); }
@@ -97,7 +123,7 @@ html, body {
   100% { box-shadow: 0 0 0 0 rgba(224,36,36,0); }
 }
 
-.search-bar button {
+.search-bar > button {
   flex: 0 0 auto;
   padding: 0 18px;
   font-size: 15px;
@@ -109,7 +135,7 @@ html, body {
   cursor: pointer;
   white-space: nowrap;
 }
-.search-bar button:hover { background: var(--primary-dark); }
+.search-bar > button:hover { background: var(--primary-dark); }
 .reset-btn {
   background: var(--muted);
   border: 1px solid #46545f;
@@ -340,7 +366,7 @@ html, body {
     flex-basis: 440px;
     max-width: 440px;
   }
-  .search-bar input {
+  .search-input-wrap input {
     font-size: 16px;
   }
 }
