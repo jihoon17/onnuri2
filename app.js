@@ -10,9 +10,8 @@ const KAKAO_APP_KEY = "01a0f8272692845e09fe8d4c402e6317";
 const EXCEL_FILE_URL = "mapData_v1.xlsx";
 
 // 색상 (style.css의 CSS 변수와 값 맞춰둠)
-const COLOR_ZONE_DEFAULT = "#3b6ea5";  // 구역 기본 색 (파란색)
-const COLOR_ZONE_SELECTED = "#123a63"; // 라벨 클릭 시 선택된 구역 (진한 파란색)
-const COLOR_ZONE_DIMMED = "#8fd0f2";   // 라벨 클릭 시 선택 외 구역 (하늘색)
+const COLOR_ZONE_DEFAULT = "#8fd0f2";  // 구역 기본 색 (하늘색) - 항상 이 색이 기본
+const COLOR_ZONE_SELECTED = "#123a63"; // 라벨 클릭 시 선택된 구역만 진하게 (진한 파란색)
 const COLOR_HIGHLIGHT = "#e02424";     // 검색된 특정 주소 (빨간색)
 
 /* -------- 전역 상태 -------- */
@@ -215,18 +214,17 @@ function drawAllZonesBase() {
 }
 
 // 현재 selectedMarket 상태에 맞춰 구역 색상을 다시 칠함 (다시 그리지 않고 옵션만 변경)
+// 기본 색은 항상 하늘색이며, 선택된 구역만 진한 파란색으로 강조. 선택 안 된 나머지 구역은
+// 옅어지지 않고 기본(하늘색) 그대로 유지됨.
 function applyZoneColorState() {
   Object.entries(zoneOverlaysByMarket).forEach(([marketName, polygons]) => {
     let color, fillOpacity;
-    if (!selectedMarket) {
-      color = COLOR_ZONE_DEFAULT;
-      fillOpacity = 0.4;
-    } else if (marketName === selectedMarket) {
+    if (marketName === selectedMarket) {
       color = COLOR_ZONE_SELECTED;
       fillOpacity = 0.55;
     } else {
-      color = COLOR_ZONE_DIMMED;
-      fillOpacity = 0.35;
+      color = COLOR_ZONE_DEFAULT;
+      fillOpacity = 0.4;
     }
     polygons.forEach(p => p.setOptions({ strokeColor: color, fillColor: color, fillOpacity }));
   });
