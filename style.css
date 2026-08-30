@@ -56,39 +56,49 @@ html, body {
   background: var(--white);
   border-bottom: 1px solid var(--border);
 }
-.search-bar input {
+
+.search-input-wrap {
+  position: relative;
   flex: 1 1 140px;
   min-width: 0;
-  padding: 12px 14px;
+}
+.search-input-wrap input {
+  width: 100%;
+  height: 100%;
+  padding: 12px 46px 12px 14px;
   font-size: 15px;
   border: 2px solid var(--ink);
   border-radius: 8px;
   outline: none;
 }
-.search-bar input:focus {
+.search-input-wrap input:focus {
   border-color: var(--primary);
 }
 
-/* 마이크 버튼: 입력창과 겹치지 않는 독립 버튼 */
-.icon-btn {
-  flex: 0 0 auto;
-  width: 44px;
+/* 마이크 버튼: 입력창 안, 오른쪽 끝에 배치 (다른 버튼과 절대 겹치지 않음) */
+.mic-btn {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--primary-dark);
-  border-radius: 8px;
+  border: none;
+  border-radius: 6px;
   background: var(--primary);
   color: var(--white);
   cursor: pointer;
+  z-index: 2;
 }
-.icon-btn:hover { background: var(--primary-dark); }
-.icon-btn.listening {
+.mic-btn:hover { background: var(--primary-dark); }
+.mic-btn.listening {
   background: var(--highlight);
-  border-color: #a51c1c;
   animation: mic-pulse 1s infinite;
 }
-.icon-btn:disabled {
+.mic-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
