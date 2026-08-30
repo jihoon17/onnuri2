@@ -440,11 +440,48 @@ function removePickedLocationById(id) {
   }
 }
 
-// 저장된 hitCoords 기준으로, 클릭 지점이 포함된 핀을 찾아 제거
-function removePickedAtLatLng(latlng) {
+// 두 좌표 사이 대략 거리(m)
+function distanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// 클릭 지점에서 maxMeters 이내 가장 가까운 핀
+function findNearestPicked(latlng, maxMeters) {
   const lat = latlng.getLat();
   const lng = latlng.getLng();
-  // 나중에 찍은 핀부터 검사 (위에 있는 것 우선)
+  let best = null;
+  let bestD = maxMeters;
+  for (let i = 0; i < pickedLocations.length; i++) {
+    const item = pickedLocations[i];
+    if (!item.latlng) continue;
+    const d = distanceMeters(lat, lng, item.latlng.getLat(), item.latlng.getLng());
+    if (d <= bestD) {
+      bestD = d;
+      best = item;
+    }
+  }
+  return best;
+}
+
+// 저장된 hitCoords 기준으로, 클릭 지점이 포함된 핀을 찾아 제거 (왼쪽 클릭용)
+function removePickedAtLatLng(latlng) {
+  // 1) 마커 근처면 그 핀 제거
+  const near = findNearestPicked(latlng, 25);
+  if (near) {
+    removePickedLocationById(near.id);
+    return true;
+  }
+  // 2) 보라색 영역 안이면 (나중에 찍은 것부터) 제거
+  const lat = latlng.getLat();
+  const lng = latlng.getLng();
   for (let i = pickedLocations.length - 1; i >= 0; i--) {
     const item = pickedLocations[i];
     if (item.hitCoords && pointInPolygon(lat, lng, item.hitCoords)) {
@@ -465,62 +502,65 @@ function stripCityName(fullAddress, cityName) {
 }
 
 function handleMapPick(latlng) {
-  // 이미 핀이 있는 영역이면 제거 (토글)
-  if (removePickedAtLatLng(latlng)) return;
+  // 우클릭한 좌표를 숫자로 고정 (항상 그 위치에 마커)
+  const clickLat = latlng.getLat();
+  const clickLng = latlng.getLng();
+  const clickPos = new kakao.maps.LatLng(clickLat, clickLng);
 
-  // 1) 필지 안 → 우클릭한 그 위치에 마커 + 필지 전체 클릭 영역(보라색)
-  const parcel = findParcelAt(latlng);
+  // 기존 마커를 거의 같은 자리(약 12m 이내)에서 우클릭하면 제거만 수행
+  const near = findNearestPicked(clickPos, 12);
+  if (near) {
+    removePickedLocationById(near.id);
+    return;
+  }
+
+  // 1) 필지 안 → 우클릭한 그 위치에 마커 + 필지 보라색
+  const parcel = findParcelAt(clickPos);
   if (parcel) {
-    const plat = latlng.getLat();
-    const plng = latlng.getLng();
     addPickedPin({
-      center: latlng,
+      center: clickPos,
       hitCoords: parcel.coords,
       labelText: parcel.address || parcel.market || "선택한 위치",
       jibunFull: parcel.address || "",
       roadFull: "",
       parcelAddress: parcel.address || "",
-      key: `parcel|${parcel.market}|${parcel.address}|${plat.toFixed(6)}|${plng.toFixed(6)}`
+      key: `parcel|${parcel.market}|${parcel.address}|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`
     });
     return;
   }
 
-  // 2) 구역 안 → 우클릭한 그 위치에 마커 + 구역 전체 클릭 영역(보라색)
-  const zone = findZoneAt(latlng);
+  // 2) 구역 안 → 우클릭한 그 위치에 마커 + 구역 보라색
+  const zone = findZoneAt(clickPos);
   if (zone) {
-    const zlat = latlng.getLat();
-    const zlng = latlng.getLng();
     addPickedPin({
-      center: latlng,
+      center: clickPos,
       hitCoords: zone.coords,
       labelText: zone.market ? `${zone.market} 구역${zone.zoneNo || ""}` : "선택한 구역",
       jibunFull: "",
       roadFull: "",
       parcelAddress: zone.market || "",
-      key: `zone|${zone.market}|${zone.zoneNo}|${zlat.toFixed(6)}|${zlng.toFixed(6)}`
+      key: `zone|${zone.market}|${zone.zoneNo}|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`
     });
     return;
   }
 
-  // 3) 그 외 → 클릭 지점 + 원형 클릭 영역(~35m)
-  const lat = latlng.getLat();
-  const lng = latlng.getLng();
-  const circle = makeCircleCoords(lat, lng, 35);
+  // 3) 그 외 → 클릭 지점 + 원형 보라색(~35m)
+  const circle = makeCircleCoords(clickLat, clickLng, 35);
 
   if (!geocoder) {
     addPickedPin({
-      center: latlng,
+      center: clickPos,
       hitCoords: circle,
       labelText: "선택한 위치",
       jibunFull: "",
       roadFull: "",
       parcelAddress: "",
-      key: `free|${lat.toFixed(6)}|${lng.toFixed(6)}`
+      key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`
     });
     return;
   }
 
-  geocoder.coord2Address(lng, lat, (result, status) => {
+  geocoder.coord2Address(clickLng, clickLat, (result, status) => {
     let jibunFull = "";
     let roadFull = "";
     let labelText = "선택한 위치";
@@ -533,30 +573,27 @@ function handleMapPick(latlng) {
         roadFull = result[0].road_address.address_name;
       }
     }
+    // 비동기 콜백에서도 동일한 clickPos 사용 (중앙으로 끌어가지 않음)
     addPickedPin({
-      center: latlng,
+      center: clickPos,
       hitCoords: circle,
       labelText,
       jibunFull,
       roadFull,
       parcelAddress: jibunFull,
-      key: `free|${lat.toFixed(6)}|${lng.toFixed(6)}`
+      key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`
     });
   });
 }
 
-// 지도/폴리곤 클릭 → 해당 영역 핀 제거
+// 지도/폴리곤 왼쪽 클릭 → 해당 영역/근처 핀 제거
 function handleMapClick(latlng) {
   removePickedAtLatLng(latlng);
 }
 
 function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parcelAddress, key }) {
-  // 같은 키면 추가하지 않고 제거만 (중복 방지)
-  const existing = pickedLocations.find((item) => item.parcelKey === key);
-  if (existing) {
-    removePickedLocationById(existing.id);
-    return;
-  }
+  // 좌표를 다시 숫자로 복사해 새 LatLng 생성 (참조/변형 문제 방지)
+  const pos = new kakao.maps.LatLng(center.getLat(), center.getLng());
 
   const id = ++pickedLocationIdSeq;
 
@@ -573,19 +610,19 @@ function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parce
 
   const marker = new kakao.maps.Marker({
     map,
-    position: center,
+    position: pos,
     zIndex: 50
   });
 
   const content = document.createElement("div");
   content.className = "market-label picked-label";
   content.textContent = labelText;
-  content.title = "이 영역 안을 클릭하면 핀이 사라집니다";
+  content.title = "마커 또는 보라색 영역을 클릭하면 사라집니다";
   content.style.cursor = "pointer";
 
   const overlay = new kakao.maps.CustomOverlay({
     map,
-    position: center,
+    position: pos,
     content,
     yAnchor: 1,
     xAnchor: 0.5,
@@ -609,14 +646,14 @@ function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parce
     overlay,
     hitPolygon,
     hitCoords,
-    latlng: center,
+    latlng: pos,
     jibunFull: jibunFull || "",
     roadFull: roadFull || "",
     parcelAddress: parcelAddress || "",
     parcelKey: key
   });
 
-  renderPickedLocationDetails(center, jibunFull || "", roadFull || "", parcelAddress || "", pickedLocations.length);
+  renderPickedLocationDetails(pos, jibunFull || "", roadFull || "", parcelAddress || "", pickedLocations.length);
 }
 
 function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress, count) {
