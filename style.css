@@ -284,13 +284,19 @@ html, body {
   border-color: var(--zone-selected) transparent transparent transparent;
 }
 
-/* 우클릭/꾹 누르기로 찍은 위치 라벨 (보라색으로 구분) */
+/* 우클릭/꾹 누르기로 찍은 위치 라벨 (보라색으로 구분, 클릭 시 제거) */
 .market-label.picked-label {
   background: #6b21a8;
-  cursor: default;
+  cursor: pointer;
+}
+.market-label.picked-label:hover {
+  background: #7e22ce;
 }
 .market-label.picked-label::after {
   border-color: #6b21a8 transparent transparent transparent;
+}
+.market-label.picked-label:hover::after {
+  border-color: #7e22ce transparent transparent transparent;
 }
 
 /* 선택한 위치 상세정보 목록 */

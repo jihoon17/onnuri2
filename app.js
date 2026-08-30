@@ -21,7 +21,8 @@ let MAP_DATA = { markets: [], parcels: [], zones: [] };
 let zoneOverlaysByMarket = {};  // marketName -> [kakao.maps.Polygon, ...] (항상 유지되는 구역 배경)
 let marketLabelOverlays = [];   // { marketName, marker, overlay, content } (항상 유지되는 라벨)
 let highlightOverlays = [];     // { polygon, marker } (검색 시에만 갱신/삭제되는 강조 표시)
-let pickedLocationOverlay = null; // { marker, overlay } (우클릭/꾹 누르기로 찍은 위치 핀)
+let pickedLocations = []; // [{ id, marker, overlay, latlng, jibunFull, roadFull }] (우클릭/꾹 누르기 핀, 여러 개 가능)
+let pickedLocationIdSeq = 0;
 
 let selectedMarket = null;      // 라벨 클릭으로 선택된 상점가 (null이면 선택 없음)
 
@@ -325,13 +326,32 @@ function focusOnParcels(parcels) {
 }
 
 /* =========================================================
-   6-1. 우클릭(PC) / 꾹 누르기(모바일) - 임의 위치 핀 찍기
+   6-1. 우클릭(PC) / 꾹 누르기(모바일) - 임의 위치 핀 찍기 (여러 개 가능)
    ========================================================= */
 function clearPickedLocation() {
-  if (pickedLocationOverlay) {
-    if (pickedLocationOverlay.marker) pickedLocationOverlay.marker.setMap(null);
-    if (pickedLocationOverlay.overlay) pickedLocationOverlay.overlay.setMap(null);
-    pickedLocationOverlay = null;
+  pickedLocations.forEach((item) => {
+    if (item.marker) item.marker.setMap(null);
+    if (item.overlay) item.overlay.setMap(null);
+  });
+  pickedLocations = [];
+}
+
+function removePickedLocationById(id) {
+  const idx = pickedLocations.findIndex((item) => item.id === id);
+  if (idx < 0) return;
+
+  const item = pickedLocations[idx];
+  if (item.marker) item.marker.setMap(null);
+  if (item.overlay) item.overlay.setMap(null);
+  pickedLocations.splice(idx, 1);
+
+  if (pickedLocations.length === 0) {
+    // 핀이 모두 사라지면 결과 패널을 초기 개요로 복원
+    renderInitialOverview();
+  } else {
+    // 남은 핀 중 마지막 것의 상세정보를 표시
+    const last = pickedLocations[pickedLocations.length - 1];
+    renderPickedLocationDetails(last.latlng, last.jibunFull, last.roadFull, pickedLocations.length);
   }
 }
 
@@ -357,8 +377,6 @@ function handleMapPick(latlng) {
 }
 
 function showPickedLocation(latlng, addrResult) {
-  clearPickedLocation();
-
   let jibunFull = "";
   let roadFull = "";
   let labelText = "선택한 위치";
@@ -373,6 +391,8 @@ function showPickedLocation(latlng, addrResult) {
     }
   }
 
+  const id = ++pickedLocationIdSeq;
+
   const marker = new kakao.maps.Marker({
     map,
     position: latlng,
@@ -382,6 +402,8 @@ function showPickedLocation(latlng, addrResult) {
   const content = document.createElement("div");
   content.className = "market-label picked-label";
   content.textContent = labelText;
+  content.title = "클릭하면 이 핀이 사라집니다";
+  content.style.cursor = "pointer";
 
   const overlay = new kakao.maps.CustomOverlay({
     map,
@@ -392,17 +414,27 @@ function showPickedLocation(latlng, addrResult) {
     zIndex: 31
   });
 
-  pickedLocationOverlay = { marker, overlay };
+  // 마커 또는 라벨을 클릭하면 해당 핀만 제거
+  kakao.maps.event.addListener(marker, "click", () => {
+    removePickedLocationById(id);
+  });
+  content.addEventListener("click", (e) => {
+    e.stopPropagation();
+    removePickedLocationById(id);
+  });
 
-  renderPickedLocationDetails(latlng, jibunFull, roadFull);
+  pickedLocations.push({ id, marker, overlay, latlng, jibunFull, roadFull });
+
+  renderPickedLocationDetails(latlng, jibunFull, roadFull, pickedLocations.length);
 }
 
-function renderPickedLocationDetails(latlng, jibunFull, roadFull) {
+function renderPickedLocationDetails(latlng, jibunFull, roadFull, count) {
   const title = document.getElementById("resultTitle");
   const badge = document.getElementById("alleyCountBadge");
   const list = document.getElementById("resultList");
 
-  title.textContent = "선택한 위치 상세정보";
+  const n = count != null ? count : pickedLocations.length;
+  title.textContent = n > 1 ? `선택한 위치 상세정보 (${n}개)` : "선택한 위치 상세정보";
   badge.style.display = "none";
 
   list.innerHTML = `
@@ -411,6 +443,7 @@ function renderPickedLocationDetails(latlng, jibunFull, roadFull) {
       <div class="detail-row"><span class="d-label">도로명주소</span><span class="d-value">${roadFull || "확인되지 않음"}</span></div>
       <div class="detail-row"><span class="d-label">위도</span><span class="d-value">${latlng.getLat().toFixed(6)}</span></div>
       <div class="detail-row"><span class="d-label">경도</span><span class="d-value">${latlng.getLng().toFixed(6)}</span></div>
+      <div class="detail-row"><span class="d-label">안내</span><span class="d-value">핀(마커·라벨)을 클릭하면 해당 위치가 사라집니다. 우클릭으로 여러 위치를 찍을 수 있습니다.</span></div>
     </div>
   `;
 }
