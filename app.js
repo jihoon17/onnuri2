@@ -90,15 +90,23 @@ function initMap() {
   });
   geocoder = new kakao.maps.services.Geocoder();
 
-  // 우클릭(PC) - 카카오맵 rightclick 이벤트
-  kakao.maps.event.addListener(map, "rightclick", (mouseEvent) => {
-    handleMapPick(mouseEvent.latLng);
+  // 화면 픽셀 좌표(clientX, clientY) -> 지도 위경도 변환 (PC 우클릭 / 모바일 꾹 누르기 공통 사용)
+  function containerPointToLatLng(clientX, clientY) {
+    const rect = container.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    return map.getProjection().coordsFromContainerPoint(new kakao.maps.Point(x, y));
+  }
+
+  // 우클릭(PC) - 카카오맵 rightclick 이벤트 대신 표준 contextmenu 이벤트를 직접 사용
+  // (카카오맵 SDK의 rightclick 이벤트가 환경에 따라 발생하지 않는 경우가 있어 더 안정적인 방식으로 통일)
+  container.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    const latlng = containerPointToLatLng(e.clientX, e.clientY);
+    handleMapPick(latlng);
   });
 
-  // 브라우저 기본 우클릭 메뉴는 표시하지 않음
-  container.addEventListener("contextmenu", (e) => e.preventDefault());
-
-  // 꾹 누르기(모바일) - 터치 길게 누르기 직접 구현
+  // 꾹 누르기(모바일) - 터치 길게 누르기 직접 구현 (PC와 동일한 좌표 변환 함수 사용)
   let longPressTimer = null;
   let longPressStartXY = null;
 
@@ -108,10 +116,7 @@ function initMap() {
     longPressStartXY = { x: touch.clientX, y: touch.clientY };
 
     longPressTimer = setTimeout(() => {
-      const rect = container.getBoundingClientRect();
-      const x = touch.clientX - rect.left;
-      const y = touch.clientY - rect.top;
-      const latlng = map.getProjection().coordsFromContainerPoint(new kakao.maps.Point(x, y));
+      const latlng = containerPointToLatLng(touch.clientX, touch.clientY);
       handleMapPick(latlng);
     }, 550);
   }, { passive: true });
