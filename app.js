@@ -569,48 +569,46 @@ function handleMapPick(latlng) {
     return;
   }
 
-  // 1) 필지 안 → 우클릭한 그 위치에 마커 + 필지 보라색
   const parcel = findParcelAt(clickPos);
-  if (parcel) {
-    addPickedPin({
-      center: clickPos,
-      hitCoords: parcel.coords,
-      labelText: parcel.address || parcel.market || "선택한 위치",
-      jibunFull: parcel.address || "",
-      roadFull: "",
-      parcelAddress: parcel.address || "",
-      key: `parcel|${parcel.market}|${parcel.address}|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`
-    });
-    return;
-  }
-
-  // 2) 구역 안 → 우클릭한 그 위치에 마커 + 구역 보라색
   const zone = findZoneAt(clickPos);
-  if (zone) {
+
+  // 1) 구역(또는 필지) 안 → 마커는 클릭 위치, 보라색은 구역 단위로 한 겹만
+  if (zone || parcel) {
+    const labelText = parcel
+      ? (parcel.address || parcel.market || "선택한 위치")
+      : (zone.market ? `${zone.market} 구역${zone.zoneNo || ""}` : "선택한 구역");
+    const jibunFull = parcel ? (parcel.address || "") : "";
+    const parcelAddress = parcel ? (parcel.address || "") : (zone ? (zone.market || "") : "");
+    // 보라색은 구역 좌표 우선 (필지마다 겹쳐 진해지지 않도록)
+    const hitCoords = zone ? zone.coords : parcel.coords;
+    const areaId = zone
+      ? `zone|${zone.market}|${zone.zoneNo}`
+      : `parcel|${parcel.market}|${parcel.address}`;
+
     addPickedPin({
       center: clickPos,
-      hitCoords: zone.coords,
-      labelText: zone.market ? `${zone.market} 구역${zone.zoneNo || ""}` : "선택한 구역",
-      jibunFull: "",
+      hitCoords,
+      labelText,
+      jibunFull,
       roadFull: "",
-      parcelAddress: zone.market || "",
-      key: `zone|${zone.market}|${zone.zoneNo}|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`
+      parcelAddress,
+      key: `${areaId}|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
+      showPurple: true
     });
     return;
   }
 
-  // 3) 그 외 → 클릭 지점 + 원형 보라색(~35m)
-  const circle = makeCircleCoords(clickLat, clickLng, 35);
-
+  // 2) 구역 밖 → 마커만 (보라색 원 없음)
   if (!geocoder) {
     addPickedPin({
       center: clickPos,
-      hitCoords: circle,
+      hitCoords: null,
       labelText: "선택한 위치",
       jibunFull: "",
       roadFull: "",
       parcelAddress: "",
-      key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`
+      key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
+      showPurple: false
     });
     return;
   }
@@ -628,15 +626,15 @@ function handleMapPick(latlng) {
         roadFull = result[0].road_address.address_name;
       }
     }
-    // 비동기 콜백에서도 동일한 clickPos 사용 (중앙으로 끌어가지 않음)
     addPickedPin({
       center: clickPos,
-      hitCoords: circle,
+      hitCoords: null,
       labelText,
       jibunFull,
       roadFull,
       parcelAddress: jibunFull,
-      key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`
+      key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
+      showPurple: false
     });
   });
 }
@@ -646,14 +644,16 @@ function handleMapClick(latlng) {
   removePickedAtLatLng(latlng);
 }
 
-function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parcelAddress, key }) {
+function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parcelAddress, key, showPurple }) {
   // 좌표를 다시 숫자로 복사해 새 LatLng 생성 (참조/변형 문제 방지)
   const pos = new kakao.maps.LatLng(center.getLat(), center.getLng());
   const id = ++pickedLocationIdSeq;
   const areaKey = getAreaKey(key);
 
-  // 같은 구역/필지는 보라색 폴리곤을 하나만 유지 (겹쳐서 진해지지 않음)
-  ensureAreaPolygon(areaKey, hitCoords);
+  // 구역/필지일 때만 보라색 표시, 같은 구역은 폴리곤 1개만 유지
+  if (showPurple && hitCoords && hitCoords.length) {
+    ensureAreaPolygon(areaKey, hitCoords);
+  }
 
   const marker = new kakao.maps.Marker({
     map,
@@ -664,7 +664,9 @@ function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parce
   const content = document.createElement("div");
   content.className = "market-label picked-label";
   content.textContent = labelText;
-  content.title = "마커 또는 보라색 영역을 클릭하면 사라집니다";
+  content.title = showPurple
+    ? "마커 또는 보라색 영역을 클릭하면 사라집니다"
+    : "마커를 클릭하면 사라집니다";
   content.style.cursor = "pointer";
 
   const overlay = new kakao.maps.CustomOverlay({
@@ -690,8 +692,8 @@ function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parce
     id,
     marker,
     overlay,
-    areaKey,
-    hitCoords,
+    areaKey: (showPurple && hitCoords) ? areaKey : null,
+    hitCoords: hitCoords || null,
     latlng: pos,
     jibunFull: jibunFull || "",
     roadFull: roadFull || "",
