@@ -43,15 +43,18 @@
       <div id="map"></div>
     </div>
 
-    <!-- 지도를 볼 기준 (색상 범례) -->
+    <!-- 지도를 볼 기준 (유형별 클릭 필터) -->
     <div class="view-criteria">
       <div class="vc-title">지도를 볼 기준</div>
-      <div class="vc-options">
-        <span class="vc-legend"><i class="vc-swatch" style="background:#8fd0f2"></i>구역(기본, 하늘색)</span>
-        <span class="vc-legend"><i class="vc-swatch" style="background:#123a63"></i>선택한 구역(라벨 클릭)</span>
+      <div class="vc-options" id="typeFilterOptions">
+        <button type="button" class="type-chip active" data-type="전통시장" style="--chip-color:#f5c518">전통시장</button>
+        <button type="button" class="type-chip active" data-type="상점가" style="--chip-color:#3fae5a">상점가</button>
+        <button type="button" class="type-chip active" data-type="골목형상점가" style="--chip-color:#3b82f6">골목형상점가</button>
+      </div>
+      <div class="vc-legend-row">
         <span class="vc-legend"><i class="vc-swatch" style="background:#e02424"></i>검색된 특정 주소</span>
       </div>
-      <div class="vc-note">모든 구역은 기본적으로 하늘색입니다. 상점가 라벨을 클릭하면 그 구역만 진한 파란색으로 강조되고, 나머지 구역은 옅어지지 않고 그대로 하늘색을 유지합니다. 주소·지번·상점 이름으로 검색하면 검색된 주소만 빨간색으로 강조되고, 나머지 구역은 계속 하늘색으로 표시됩니다.</div>
+      <div class="vc-note">유형 버튼을 클릭해서 켜고 끌 수 있습니다. 상점가 라벨을 클릭하면 그 구역만 진하게 강조되고(같은 유형 색의 진한 톤), 나머지 구역은 옅어지지 않고 그대로 유지됩니다. 주소·지번·상점 이름으로 검색하면 검색된 주소만 빨간색으로 강조됩니다.</div>
     </div>
   </div>
 

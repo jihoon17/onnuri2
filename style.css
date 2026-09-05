@@ -8,8 +8,6 @@
   --bg: #f5f7fa;
   --white: #ffffff;
 
-  --zone-default: #8fd0f2;   /* 구역 기본 색 (하늘색) - 항상 이 색이 기본 */
-  --zone-selected: #123a63;  /* 라벨 클릭 시 선택된 구역만 진하게 (진한 파란색) */
   --highlight: #e02424;      /* 검색된 특정 주소 (빨간색) */
 }
 
@@ -230,6 +228,46 @@ html, body {
   gap: 10px;
   flex-wrap: wrap;
 }
+
+/* 유형별 클릭 필터 버튼 (전통시장/상점가/골목형상점가) */
+.type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.55);
+  background: rgba(255,255,255,0.12);
+  color: var(--white);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.type-chip::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--chip-color, #ffffff);
+  border: 1px solid rgba(255,255,255,0.8);
+}
+.type-chip.active {
+  opacity: 1;
+  background: rgba(255,255,255,0.22);
+}
+.type-chip:hover {
+  opacity: 1;
+}
+
+.vc-legend-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
 .vc-legend {
   display: inline-flex;
   align-items: center;
@@ -268,7 +306,7 @@ html, body {
   background: #33465a;
 }
 .market-label.selected {
-  background: var(--zone-selected);
+  background: var(--sel-color, #123a63);
 }
 .market-label::after {
   content: "";
@@ -281,7 +319,7 @@ html, body {
   border-color: #1f2d3a transparent transparent transparent;
 }
 .market-label.selected::after {
-  border-color: var(--zone-selected) transparent transparent transparent;
+  border-color: var(--sel-color, #123a63) transparent transparent transparent;
 }
 
 /* 우클릭/꾹 누르기로 찍은 위치 라벨 (보라색으로 구분, 클릭 시 제거) */

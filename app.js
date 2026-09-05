@@ -9,10 +9,20 @@ const KAKAO_APP_KEY = "01a0f8272692845e09fe8d4c402e6317";
 // 엑셀 원본 파일 경로 (이 index.html과 같은 폴더/레포에 올려주세요)
 const EXCEL_FILE_URL = "mapData_v1.xlsx";
 
-// 색상 (style.css의 CSS 변수와 값 맞춰둠)
-const COLOR_ZONE_DEFAULT = "#8fd0f2";  // 구역 기본 색 (하늘색) - 항상 이 색이 기본
-const COLOR_ZONE_SELECTED = "#123a63"; // 라벨 클릭 시 선택된 구역만 진하게 (진한 파란색)
+// 유형별 색상: 전통시장=노랑, 상점가=초록, 골목형상점가=파랑
+// base: 구역 기본 색 / dark: 그 구역이 선택(라벨 클릭)됐을 때 진하게 쓰는 색 / marker: 마커 핀 색
+const TYPE_COLORS = {
+  "전통시장":     { base: "#f5c518", dark: "#8a6d00", marker: "#f5c518" },
+  "상점가":       { base: "#3fae5a", dark: "#1f6b34", marker: "#3fae5a" },
+  "골목형상점가": { base: "#3b82f6", dark: "#123a63", marker: "#3b82f6" }
+};
+const DEFAULT_TYPE_COLOR = { base: "#94a3b8", dark: "#475569", marker: "#94a3b8" }; // 미분류 유형 대비
+
 const COLOR_HIGHLIGHT = "#e02424";     // 검색된 특정 주소 (빨간색)
+
+function getTypeColor(type) {
+  return TYPE_COLORS[type] || DEFAULT_TYPE_COLOR;
+}
 
 /* -------- 전역 상태 -------- */
 let map, geocoder;
@@ -28,6 +38,7 @@ let selectedMarket = null;      // 라벨 클릭으로 선택된 상점가 (null
 let checklistMarket = null;     // 체크리스트가 열려있는 상점가 (null이면 닫힘)
 let checklistOverlay = null;    // 체크리스트 흰색 박스(CustomOverlay)
 let checklistHighlights = {};   // parcelId -> kakao.maps.Polygon (체크리스트에서 켠 주소 강조)
+let activeTypes = new Set(Object.keys(TYPE_COLORS)); // "지도를 볼 기준"에서 켜져있는 유형들
 
 /* =========================================================
    1. 엑셀 원본 읽기
@@ -218,15 +229,17 @@ function drawAllZonesBase() {
 
   MAP_DATA.markets.forEach(m => {
     const zones = getZonesForMarket(m.name);
+    const colors = getTypeColor(m.type);
+    const visible = activeTypes.has(m.type) ? map : null;
     const polygons = zones.map(z => {
       const path = toLatLngPath(z.coords);
       return new kakao.maps.Polygon({
-        map,
+        map: visible,
         path,
         strokeWeight: 2,
-        strokeColor: COLOR_ZONE_DEFAULT,
+        strokeColor: colors.base,
         strokeOpacity: 0.9,
-        fillColor: COLOR_ZONE_DEFAULT,
+        fillColor: colors.base,
         fillOpacity: 0.4,
         zIndex: 1
       });
@@ -236,23 +249,28 @@ function drawAllZonesBase() {
 }
 
 // 현재 selectedMarket 상태에 맞춰 구역 색상을 다시 칠함 (다시 그리지 않고 옵션만 변경)
-// 기본 색은 항상 하늘색이며, 선택된 구역만 진한 파란색으로 강조. 선택 안 된 나머지 구역은
-// 옅어지지 않고 기본(하늘색) 그대로 유지됨.
+// 기본 색은 상점가 유형(전통시장/상점가/골목형상점가)에 따라 다르며, 선택된 구역만 그
+// 유형의 진한 색으로 강조. 선택 안 된 나머지 구역은 옅어지지 않고 자기 유형의 기본색을 유지.
 function applyZoneColorState() {
   Object.entries(zoneOverlaysByMarket).forEach(([marketName, polygons]) => {
+    const type = getMarketType(marketName);
+    const colors = getTypeColor(type);
     let color, fillOpacity;
     if (marketName === selectedMarket) {
-      color = COLOR_ZONE_SELECTED;
-      fillOpacity = 0.55;
+      color = colors.dark;
+      fillOpacity = 0.6;
     } else {
-      color = COLOR_ZONE_DEFAULT;
+      color = colors.base;
       fillOpacity = 0.4;
     }
     polygons.forEach(p => p.setOptions({ strokeColor: color, fillColor: color, fillOpacity }));
   });
 
   marketLabelOverlays.forEach(o => {
-    o.content.classList.toggle("selected", o.marketName === selectedMarket);
+    const isSelected = o.marketName === selectedMarket;
+    const colors = getTypeColor(o.type);
+    o.content.style.setProperty("--sel-color", colors.dark);
+    o.content.classList.toggle("selected", isSelected);
   });
 }
 
@@ -385,6 +403,21 @@ function openChecklist(marketName) {
   checklistMarket = marketName;
 }
 
+// 유형 색상에 맞는 핀 모양 마커 이미지 생성 (SVG data URL)
+function createMarkerImage(color) {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="38" viewBox="0 0 28 38">` +
+    `<path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 24 14 24s14-13.5 14-24C28 6.3 21.7 0 14 0z" fill="${color}" stroke="#ffffff" stroke-width="1.5"/>` +
+    `<circle cx="14" cy="14" r="5.5" fill="#ffffff"/>` +
+    `</svg>`;
+  const url = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
+  return new kakao.maps.MarkerImage(
+    url,
+    new kakao.maps.Size(28, 38),
+    { offset: new kakao.maps.Point(14, 38) }
+  );
+}
+
 /* =========================================================
    5. 상점가 명칭 라벨 레이어 - 각 구역 중 위도가 가장 높은 지점에 표시
    ========================================================= */
@@ -404,20 +437,24 @@ function drawMarketLabels() {
     if (!topPoint) return;
 
     const position = new kakao.maps.LatLng(topPoint.lat, topPoint.lng);
+    const colors = getTypeColor(m.type);
+    const visible = activeTypes.has(m.type) ? map : null;
 
     const marker = new kakao.maps.Marker({
-      map,
+      map: visible,
       position,
+      image: createMarkerImage(colors.marker),
       zIndex: 20
     });
 
     const content = document.createElement("div");
     content.className = "market-label";
     content.textContent = m.name;
+    content.style.setProperty("--sel-color", colors.dark);
     content.addEventListener("click", () => selectMarketByLabel(m.name));
 
     const overlay = new kakao.maps.CustomOverlay({
-      map,
+      map: visible,
       position,
       content,
       yAnchor: 1,
@@ -425,7 +462,7 @@ function drawMarketLabels() {
       zIndex: 21
     });
 
-    marketLabelOverlays.push({ marketName: m.name, marker, overlay, content });
+    marketLabelOverlays.push({ marketName: m.name, type: m.type, marker, overlay, content });
   });
 }
 
@@ -983,6 +1020,11 @@ function resetToInitialView() {
   clearPickedLocation();
   closeChecklist();
   selectedMarket = null;
+
+  activeTypes = new Set(Object.keys(TYPE_COLORS));
+  document.querySelectorAll(".type-chip").forEach(chip => chip.classList.add("active"));
+  applyTypeVisibility();
+
   applyZoneColorState();
   renderInitialOverview();
 
@@ -993,6 +1035,44 @@ function resetToInitialView() {
 }
 
 document.getElementById("resetBtn").addEventListener("click", resetToInitialView);
+
+/* -------- 지도를 볼 기준: 전통시장/상점가/골목형상점가 유형별 필터 -------- */
+// activeTypes에 들어있는 유형만 구역/라벨/마커를 지도에 표시
+function applyTypeVisibility() {
+  Object.entries(zoneOverlaysByMarket).forEach(([marketName, polygons]) => {
+    const type = getMarketType(marketName);
+    const visible = activeTypes.has(type) ? map : null;
+    polygons.forEach(p => p.setMap(visible));
+  });
+
+  marketLabelOverlays.forEach(o => {
+    const visible = activeTypes.has(o.type) ? map : null;
+    o.marker.setMap(visible);
+    o.overlay.setMap(visible);
+  });
+}
+
+document.querySelectorAll(".type-chip").forEach(chip => {
+  chip.addEventListener("click", () => {
+    const type = chip.dataset.type;
+    const nowActive = !chip.classList.contains("active");
+    chip.classList.toggle("active", nowActive);
+
+    if (nowActive) {
+      activeTypes.add(type);
+    } else {
+      activeTypes.delete(type);
+      // 꺼진 유형이 현재 선택/체크리스트 대상이면 함께 정리
+      if (selectedMarket && getMarketType(selectedMarket) === type) {
+        closeChecklist();
+        selectedMarket = null;
+        applyZoneColorState();
+      }
+    }
+
+    applyTypeVisibility();
+  });
+});
 
 /* -------- 마이크 음성 검색 -------- */
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
