@@ -56,40 +56,66 @@ html, body {
   border-bottom: 1px solid var(--border);
 }
 
-.search-bar input {
-  flex: 1 1 140px;
+/* 입력창 + 마이크를 하나로 묶은 래퍼 (Grok 검색창 스타일) */
+.search-input-wrap {
+  position: relative;
+  flex: 1 1 160px;
   min-width: 0;
-  padding: 12px 14px;
-  font-size: 15px;
-  border: 2px solid var(--ink);
-  border-radius: 8px;
-  outline: none;
-}
-.search-bar input:focus {
-  border-color: var(--primary);
+  display: flex;
+  align-items: center;
 }
 
-/* 마이크 버튼: 입력창과 완전히 분리된 독립 버튼 */
+.search-input-wrap input {
+  width: 100%;
+  padding: 12px 44px 12px 14px; /* 오른쪽 마이크 공간 확보 */
+  font-size: 15px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  outline: none;
+  background: var(--white);
+  color: var(--ink);
+}
+.search-input-wrap input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59, 110, 165, 0.15);
+}
+
+/* 마이크 버튼: 검색창 안쪽 오른쪽에 배치 */
 .mic-btn {
-  flex: 0 0 auto;
-  width: 44px;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 10px;
-  background: var(--primary);
-  color: var(--white);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease, background 0.15s ease;
+  z-index: 2;
 }
-.mic-btn:hover { background: var(--primary-dark); }
+.mic-btn:hover {
+  color: var(--primary);
+  background: var(--primary-light);
+}
 .mic-btn.listening {
+  color: #fff;
   background: var(--highlight);
   animation: mic-pulse 1s infinite;
 }
 .mic-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
+}
+.mic-btn:disabled:hover {
+  color: var(--muted);
+  background: transparent;
 }
 @keyframes mic-pulse {
   0%   { box-shadow: 0 0 0 0 rgba(224,36,36,0.45); }
@@ -97,7 +123,7 @@ html, body {
   100% { box-shadow: 0 0 0 0 rgba(224,36,36,0); }
 }
 
-.search-bar button {
+.search-bar > button {
   flex: 0 0 auto;
   padding: 0 18px;
   font-size: 15px;
@@ -109,7 +135,7 @@ html, body {
   cursor: pointer;
   white-space: nowrap;
 }
-.search-bar button:hover { background: var(--primary-dark); }
+.search-bar > button:hover { background: var(--primary-dark); }
 .reset-btn {
   background: var(--muted);
   border: 1px solid #46545f;
@@ -258,16 +284,19 @@ html, body {
   border-color: var(--zone-selected) transparent transparent transparent;
 }
 
-/* 우클릭/꾹 누르기로 찍은 위치 라벨 (보라색으로 구분, 클릭하면 사라짐) */
+/* 우클릭/꾹 누르기로 찍은 위치 라벨 (보라색으로 구분, 클릭 시 제거) */
 .market-label.picked-label {
   background: #6b21a8;
   cursor: pointer;
 }
 .market-label.picked-label:hover {
-  background: #5b1a90;
+  background: #7e22ce;
 }
 .market-label.picked-label::after {
   border-color: #6b21a8 transparent transparent transparent;
+}
+.market-label.picked-label:hover::after {
+  border-color: #7e22ce transparent transparent transparent;
 }
 
 /* 상점가 주소 체크리스트 (라벨 두 번째 클릭 시 표시) */
@@ -279,11 +308,33 @@ html, body {
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 8px 22px rgba(0,0,0,0.22);
-  padding: 10px 12px;
+  padding: 10px 32px 10px 12px;
   min-width: 190px;
   max-width: 250px;
   max-height: 220px;
   overflow-y: auto;
+}
+.addr-checklist-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary-light);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.addr-checklist-close:hover {
+  background: var(--highlight);
+  color: #ffffff;
 }
 .addr-checklist-title {
   font-weight: 700;
@@ -291,6 +342,7 @@ html, body {
   color: var(--primary-dark);
   margin-bottom: 6px;
   padding-bottom: 6px;
+  padding-right: 18px;
   border-bottom: 1px solid var(--border);
 }
 .addr-checklist-empty {
@@ -390,7 +442,7 @@ html, body {
     flex-basis: 440px;
     max-width: 440px;
   }
-  .search-bar input {
+  .search-input-wrap input {
     font-size: 16px;
   }
 }

@@ -21,8 +21,9 @@ let MAP_DATA = { markets: [], parcels: [], zones: [] };
 let zoneOverlaysByMarket = {};  // marketName -> [kakao.maps.Polygon, ...] (항상 유지되는 구역 배경)
 let marketLabelOverlays = [];   // { marketName, marker, overlay, content } (항상 유지되는 라벨)
 let highlightOverlays = [];     // { polygon, marker } (검색 시에만 갱신/삭제되는 강조 표시)
-let pickedLocations = [];       // [{ id, marker, overlay }, ...] (우클릭/꾹 누르기로 찍은 여러 위치 핀)
-
+let pickedLocations = []; // [{ id, marker, overlay, latlng, jibunFull, roadFull, areaKey }] (우클릭/꾹 누르기 핀, 여러 개 가능)
+let pickedLocationIdSeq = 0;
+let pickedAreaPolygons = {}; // areaKey -> { polygon, hitCoords, refCount } (같은 구역 보라색은 하나만)
 let selectedMarket = null;      // 라벨 클릭으로 선택된 상점가 (null이면 선택 없음)
 let checklistMarket = null;     // 체크리스트가 열려있는 상점가 (null이면 닫힘)
 let checklistOverlay = null;    // 체크리스트 흰색 박스(CustomOverlay)
@@ -100,12 +101,29 @@ function initMap() {
     return map.getProjection().coordsFromContainerPoint(new kakao.maps.Point(x, y));
   }
 
+  // 우클릭 직후 브라우저가 보내는 가짜 click 을 무시하기 위한 타임스탬프
+  let ignoreClickUntil = 0;
+
   // 우클릭(PC) - 카카오맵 rightclick 이벤트 대신 표준 contextmenu 이벤트를 직접 사용
-  // (카카오맵 SDK의 rightclick 이벤트가 환경에 따라 발생하지 않는 경우가 있어 더 안정적인 방식으로 통일)
   container.addEventListener("contextmenu", (e) => {
     e.preventDefault();
+    ignoreClickUntil = Date.now() + 400;
     const latlng = containerPointToLatLng(e.clientX, e.clientY);
     handleMapPick(latlng);
+  });
+
+  // 일반 클릭: 이미 핀이 찍힌 영역 안을 클릭하면 제거
+  kakao.maps.event.addListener(map, "click", (mouseEvent) => {
+    if (Date.now() < ignoreClickUntil) return;
+    handleMapClick(mouseEvent.latLng);
+  });
+
+  // DOM 클릭 백업: 카카오 오버레이가 이벤트를 삼켜도 좌표로 직접 판별해 제거
+  container.addEventListener("click", (e) => {
+    if (e.button !== 0) return;
+    if (Date.now() < ignoreClickUntil) return;
+    const latlng = containerPointToLatLng(e.clientX, e.clientY);
+    handleMapClick(latlng);
   });
 
   // 꾹 누르기(모바일) - 터치 길게 누르기 직접 구현 (PC와 동일한 좌표 변환 함수 사용)
@@ -118,6 +136,7 @@ function initMap() {
     longPressStartXY = { x: touch.clientX, y: touch.clientY };
 
     longPressTimer = setTimeout(() => {
+      ignoreClickUntil = Date.now() + 500;
       const latlng = containerPointToLatLng(touch.clientX, touch.clientY);
       handleMapPick(latlng);
     }, 550);
@@ -241,6 +260,7 @@ function applyZoneColorState() {
 // 1번 클릭: 그 구역만 진한 파란색으로 강조 (나머지는 하늘색 유지)
 // 2번 클릭(같은 라벨): 그 상점가에 속한 주소 체크리스트(흰색 박스)를 표시
 // 3번 클릭(같은 라벨): 완전히 원래 상태로 복귀 (체크리스트 닫힘, 강조 해제)
+// 체크리스트의 X 버튼을 누르면 강조는 유지한 채 체크리스트만 닫힘
 // 지도의 줌 레벨/범위는 변경하지 않고 색상/체크리스트만 바꿈
 function selectMarketByLabel(marketName) {
   if (selectedMarket !== marketName) {
@@ -266,7 +286,7 @@ function clearChecklistHighlights() {
   checklistHighlights = {};
 }
 
-// 체크리스트(흰색 박스)와 그 안에서 켠 주소 강조를 모두 닫음
+// 체크리스트(흰색 박스)와 그 안에서 켠 주소 강조를 모두 닫음 (X 버튼 클릭 시에도 호출됨)
 function closeChecklist() {
   if (checklistOverlay) {
     checklistOverlay.setMap(null);
@@ -305,6 +325,18 @@ function openChecklist(marketName) {
 
   const box = document.createElement("div");
   box.className = "addr-checklist";
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "addr-checklist-close";
+  closeBtn.setAttribute("aria-label", "체크리스트 닫기");
+  closeBtn.textContent = "×";
+  closeBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    closeChecklist();
+  });
+  box.appendChild(closeBtn);
 
   const title = document.createElement("div");
   title.className = "addr-checklist-title";
@@ -347,7 +379,7 @@ function openChecklist(marketName) {
     content: box,
     yAnchor: 1,
     xAnchor: 0.5,
-    zIndex: 40
+    zIndex: 60
   });
 
   checklistMarket = marketName;
@@ -438,28 +470,210 @@ function focusOnParcels(parcels) {
 }
 
 /* =========================================================
-   6-1. 우클릭(PC) / 꾹 누르기(모바일) - 임의 위치 핀 찍기
-   (여러 개를 동시에 찍을 수 있고, 같은 마커/라벨을 다시 클릭하면 그 핀만 사라짐)
+   6-1. 우클릭(PC) / 꾹 누르기(모바일) - 위치(필지) 핀 찍기 (여러 개 가능)
+   - 필지 안을 우클릭하면 해당 필지 중앙에 마커 생성
+   - 이미 핀이 찍힌 필지 안을 클릭(또는 다시 우클릭)하면 그 핀 제거
    ========================================================= */
-let pickedLocationSeq = 0;
 
-function clearAllPickedLocations() {
-  pickedLocations.forEach(p => {
-    p.marker.setMap(null);
-    p.overlay.setMap(null);
+// 점-다각형 포함 여부 (ray casting)
+function pointInPolygon(lat, lng, coords) {
+  if (!coords || coords.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
+    const yi = coords[i].lat, xi = coords[i].lng;
+    const yj = coords[j].lat, xj = coords[j].lng;
+    const intersect =
+      ((yi > lat) !== (yj > lat)) &&
+      (lng < ((xj - xi) * (lat - yi)) / ((yj - yi) || 1e-15) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function findParcelAt(latlng) {
+  const lat = latlng.getLat();
+  const lng = latlng.getLng();
+  let found = null;
+  for (let i = 0; i < MAP_DATA.parcels.length; i++) {
+    const p = MAP_DATA.parcels[i];
+    if (pointInPolygon(lat, lng, p.coords)) found = p;
+  }
+  return found;
+}
+
+function findZoneAt(latlng) {
+  const lat = latlng.getLat();
+  const lng = latlng.getLng();
+  let found = null;
+  for (let i = 0; i < MAP_DATA.zones.length; i++) {
+    const z = MAP_DATA.zones[i];
+    if (pointInPolygon(lat, lng, z.coords)) found = z;
+  }
+  return found;
+}
+
+function getCentroidLatLng(coords) {
+  let latSum = 0;
+  let lngSum = 0;
+  const n = coords.length || 1;
+  coords.forEach((c) => {
+    latSum += c.lat;
+    lngSum += c.lng;
   });
+  return new kakao.maps.LatLng(latSum / n, lngSum / n);
+}
+
+// 중심점 기준 원형 클릭 영역 좌표 (대략 radiusMeters)
+function makeCircleCoords(centerLat, centerLng, radiusMeters, steps) {
+  steps = steps || 28;
+  const coords = [];
+  const dLat = radiusMeters / 111320;
+  const dLng = radiusMeters / (111320 * Math.cos((centerLat * Math.PI) / 180) || 1e-6);
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    coords.push({
+      lat: centerLat + dLat * Math.sin(a),
+      lng: centerLng + dLng * Math.cos(a)
+    });
+  }
+  return coords;
+}
+
+function getAreaKey(key) {
+  if (!key) return key;
+  if (key.startsWith("free|")) return key;
+  const parts = key.split("|");
+  // parcel|market|address|lat|lng  /  zone|market|zoneNo|lat|lng
+  if (parts[0] === "parcel" && parts.length >= 3) return `parcel|${parts[1]}|${parts[2]}`;
+  if (parts[0] === "zone" && parts.length >= 3) return `zone|${parts[1]}|${parts[2]}`;
+  return key;
+}
+
+function ensureAreaPolygon(areaKey, hitCoords) {
+  if (pickedAreaPolygons[areaKey]) {
+    pickedAreaPolygons[areaKey].refCount += 1;
+    return pickedAreaPolygons[areaKey];
+  }
+  const polygon = new kakao.maps.Polygon({
+    map,
+    path: toLatLngPath(hitCoords),
+    strokeWeight: 2,
+    strokeColor: "#6b21a8",
+    strokeOpacity: 0.95,
+    fillColor: "#6b21a8",
+    fillOpacity: 0.32,
+    zIndex: 40
+  });
+  kakao.maps.event.addListener(polygon, "click", () => {
+    removeLastPickedInArea(areaKey);
+  });
+  pickedAreaPolygons[areaKey] = { polygon, hitCoords, refCount: 1 };
+  return pickedAreaPolygons[areaKey];
+}
+
+function releaseAreaPolygon(areaKey) {
+  const entry = pickedAreaPolygons[areaKey];
+  if (!entry) return;
+  entry.refCount -= 1;
+  if (entry.refCount <= 0) {
+    if (entry.polygon) entry.polygon.setMap(null);
+    delete pickedAreaPolygons[areaKey];
+  }
+}
+
+function removeLastPickedInArea(areaKey) {
+  for (let i = pickedLocations.length - 1; i >= 0; i--) {
+    if (pickedLocations[i].areaKey === areaKey) {
+      removePickedLocationById(pickedLocations[i].id);
+      return;
+    }
+  }
+}
+
+function clearPickedLocation() {
+  pickedLocations.forEach((item) => {
+    if (item.marker) item.marker.setMap(null);
+    if (item.overlay) item.overlay.setMap(null);
+  });
+  Object.keys(pickedAreaPolygons).forEach((k) => {
+    if (pickedAreaPolygons[k].polygon) pickedAreaPolygons[k].polygon.setMap(null);
+  });
+  pickedAreaPolygons = {};
   pickedLocations = [];
 }
 
-function removePickedLocation(id) {
-  const idx = pickedLocations.findIndex(p => p.id === id);
-  if (idx === -1) return;
-  pickedLocations[idx].marker.setMap(null);
-  pickedLocations[idx].overlay.setMap(null);
+function removePickedLocationById(id) {
+  const idx = pickedLocations.findIndex((item) => item.id === id);
+  if (idx < 0) return;
+
+  const item = pickedLocations[idx];
+  if (item.marker) item.marker.setMap(null);
+  if (item.overlay) item.overlay.setMap(null);
+  if (item.areaKey) releaseAreaPolygon(item.areaKey);
   pickedLocations.splice(idx, 1);
+
+  if (pickedLocations.length === 0) {
+    renderInitialOverview();
+  } else {
+    const last = pickedLocations[pickedLocations.length - 1];
+    renderPickedLocationDetails(last.latlng, last.jibunFull, last.roadFull, last.parcelAddress, pickedLocations.length);
+  }
 }
 
-// 전체 주소에서 맨 앞의 시/도 이름만 제거 (예: "세종특별자치시 보람동 721" -> "보람동 721")
+// 두 좌표 사이 대략 거리(m)
+function distanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// 클릭 지점에서 maxMeters 이내 가장 가까운 핀
+function findNearestPicked(latlng, maxMeters) {
+  const lat = latlng.getLat();
+  const lng = latlng.getLng();
+  let best = null;
+  let bestD = maxMeters;
+  for (let i = 0; i < pickedLocations.length; i++) {
+    const item = pickedLocations[i];
+    if (!item.latlng) continue;
+    const d = distanceMeters(lat, lng, item.latlng.getLat(), item.latlng.getLng());
+    if (d <= bestD) {
+      bestD = d;
+      best = item;
+    }
+  }
+  return best;
+}
+
+// 저장된 hitCoords 기준으로, 클릭 지점이 포함된 핀을 찾아 제거 (왼쪽 클릭용)
+function removePickedAtLatLng(latlng) {
+  // 1) 마커 근처면 그 핀 제거
+  const near = findNearestPicked(latlng, 25);
+  if (near) {
+    removePickedLocationById(near.id);
+    return true;
+  }
+  // 2) 보라색 영역 안이면 그 영역의 가장 최근 핀 제거
+  const lat = latlng.getLat();
+  const lng = latlng.getLng();
+  const areaKeys = Object.keys(pickedAreaPolygons);
+  for (let i = areaKeys.length - 1; i >= 0; i--) {
+    const entry = pickedAreaPolygons[areaKeys[i]];
+    if (entry.hitCoords && pointInPolygon(lat, lng, entry.hitCoords)) {
+      removeLastPickedInArea(areaKeys[i]);
+      return true;
+    }
+  }
+  return false;
+}
+
+// 전체 주소에서 맨 앞의 시/도 이름만 제거
 function stripCityName(fullAddress, cityName) {
   if (!fullAddress) return "";
   if (cityName && fullAddress.startsWith(cityName)) {
@@ -469,77 +683,170 @@ function stripCityName(fullAddress, cityName) {
 }
 
 function handleMapPick(latlng) {
-  if (!geocoder) return;
+  // 우클릭한 좌표를 숫자로 고정 (항상 그 위치에 마커)
+  const clickLat = latlng.getLat();
+  const clickLng = latlng.getLng();
+  const clickPos = new kakao.maps.LatLng(clickLat, clickLng);
 
-  geocoder.coord2Address(latlng.getLng(), latlng.getLat(), (result, status) => {
+  // 기존 마커를 거의 같은 자리(약 12m 이내)에서 우클릭하면 제거만 수행
+  const near = findNearestPicked(clickPos, 12);
+  if (near) {
+    removePickedLocationById(near.id);
+    return;
+  }
+
+  const parcel = findParcelAt(clickPos);
+  const zone = findZoneAt(clickPos);
+
+  // 1) 구역(또는 필지) 안 → 마커는 클릭 위치, 보라색은 구역 단위로 한 겹만
+  if (zone || parcel) {
+    const labelText = parcel
+      ? (parcel.address || parcel.market || "선택한 위치")
+      : (zone.market ? `${zone.market} 구역${zone.zoneNo || ""}` : "선택한 구역");
+    const jibunFull = parcel ? (parcel.address || "") : "";
+    const parcelAddress = parcel ? (parcel.address || "") : (zone ? (zone.market || "") : "");
+    // 보라색은 구역 좌표 우선 (필지마다 겹쳐 진해지지 않도록)
+    const hitCoords = zone ? zone.coords : parcel.coords;
+    const areaId = zone
+      ? `zone|${zone.market}|${zone.zoneNo}`
+      : `parcel|${parcel.market}|${parcel.address}`;
+
+    addPickedPin({
+      center: clickPos,
+      hitCoords,
+      labelText,
+      jibunFull,
+      roadFull: "",
+      parcelAddress,
+      key: `${areaId}|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
+      showPurple: true
+    });
+    return;
+  }
+
+  // 2) 구역 밖 → 마커만 (보라색 원 없음)
+  if (!geocoder) {
+    addPickedPin({
+      center: clickPos,
+      hitCoords: null,
+      labelText: "선택한 위치",
+      jibunFull: "",
+      roadFull: "",
+      parcelAddress: "",
+      key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
+      showPurple: false
+    });
+    return;
+  }
+
+  geocoder.coord2Address(clickLng, clickLat, (result, status) => {
+    let jibunFull = "";
+    let roadFull = "";
+    let labelText = "선택한 위치";
     if (status === kakao.maps.services.Status.OK && result[0]) {
-      addPickedLocation(latlng, result[0]);
-    } else {
-      addPickedLocation(latlng, null);
+      if (result[0].address) {
+        jibunFull = result[0].address.address_name;
+        labelText = stripCityName(jibunFull, result[0].address.region_1depth_name) || jibunFull;
+      }
+      if (result[0].road_address) {
+        roadFull = result[0].road_address.address_name;
+      }
     }
+    addPickedPin({
+      center: clickPos,
+      hitCoords: null,
+      labelText,
+      jibunFull,
+      roadFull,
+      parcelAddress: jibunFull,
+      key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
+      showPurple: false
+    });
   });
 }
 
-function addPickedLocation(latlng, addrResult) {
-  const id = ++pickedLocationSeq;
+// 지도/폴리곤 왼쪽 클릭 → 해당 영역/근처 핀 제거
+function handleMapClick(latlng) {
+  removePickedAtLatLng(latlng);
+}
 
-  let jibunFull = "";
-  let roadFull = "";
-  let labelText = "선택한 위치";
+function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parcelAddress, key, showPurple }) {
+  // 좌표를 다시 숫자로 복사해 새 LatLng 생성 (참조/변형 문제 방지)
+  const pos = new kakao.maps.LatLng(center.getLat(), center.getLng());
+  const id = ++pickedLocationIdSeq;
+  const areaKey = getAreaKey(key);
 
-  if (addrResult) {
-    if (addrResult.address) {
-      jibunFull = addrResult.address.address_name;
-      labelText = stripCityName(jibunFull, addrResult.address.region_1depth_name) || jibunFull;
-    }
-    if (addrResult.road_address) {
-      roadFull = addrResult.road_address.address_name;
-    }
+  // 구역/필지일 때만 보라색 표시, 같은 구역은 폴리곤 1개만 유지
+  if (showPurple && hitCoords && hitCoords.length) {
+    ensureAreaPolygon(areaKey, hitCoords);
   }
 
   const marker = new kakao.maps.Marker({
     map,
-    position: latlng,
-    zIndex: 30,
-    clickable: true
+    position: pos,
+    zIndex: 50
   });
 
   const content = document.createElement("div");
   content.className = "market-label picked-label";
   content.textContent = labelText;
-  content.title = "클릭하면 이 마커가 사라집니다";
-  content.addEventListener("click", () => removePickedLocation(id));
+  content.title = showPurple
+    ? "마커 또는 보라색 영역을 클릭하면 사라집니다"
+    : "마커를 클릭하면 사라집니다";
+  content.style.cursor = "pointer";
 
   const overlay = new kakao.maps.CustomOverlay({
     map,
-    position: latlng,
+    position: pos,
     content,
     yAnchor: 1,
     xAnchor: 0.5,
-    zIndex: 31
+    zIndex: 51,
+    clickable: true
   });
 
-  kakao.maps.event.addListener(marker, "click", () => removePickedLocation(id));
+  const removeThis = () => removePickedLocationById(id);
 
-  pickedLocations.push({ id, marker, overlay });
+  kakao.maps.event.addListener(marker, "click", removeThis);
+  content.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    removeThis();
+  });
 
-  renderPickedLocationDetails(latlng, jibunFull, roadFull);
+  pickedLocations.push({
+    id,
+    marker,
+    overlay,
+    areaKey: (showPurple && hitCoords) ? areaKey : null,
+    hitCoords: hitCoords || null,
+    latlng: pos,
+    jibunFull: jibunFull || "",
+    roadFull: roadFull || "",
+    parcelAddress: parcelAddress || "",
+    parcelKey: key
+  });
+
+  renderPickedLocationDetails(pos, jibunFull || "", roadFull || "", parcelAddress || "", pickedLocations.length);
 }
 
-function renderPickedLocationDetails(latlng, jibunFull, roadFull) {
+function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress, count) {
   const title = document.getElementById("resultTitle");
   const badge = document.getElementById("alleyCountBadge");
   const list = document.getElementById("resultList");
 
-  title.textContent = "선택한 위치 상세정보";
+  const n = count != null ? count : pickedLocations.length;
+  title.textContent = n > 1 ? `선택한 위치 상세정보 (${n}개)` : "선택한 위치 상세정보";
   badge.style.display = "none";
 
   list.innerHTML = `
     <div class="detail-block">
+      <div class="detail-row"><span class="d-label">위치</span><span class="d-value">${parcelAddress || jibunFull || "확인되지 않음"}</span></div>
       <div class="detail-row"><span class="d-label">지번주소</span><span class="d-value">${jibunFull || "확인되지 않음"}</span></div>
       <div class="detail-row"><span class="d-label">도로명주소</span><span class="d-value">${roadFull || "확인되지 않음"}</span></div>
       <div class="detail-row"><span class="d-label">위도</span><span class="d-value">${latlng.getLat().toFixed(6)}</span></div>
       <div class="detail-row"><span class="d-label">경도</span><span class="d-value">${latlng.getLng().toFixed(6)}</span></div>
+      <div class="detail-row"><span class="d-label">안내</span><span class="d-value">보라색 영역 안을 클릭(또는 다시 우클릭)하면 핀이 사라집니다.</span></div>
     </div>
   `;
 }
@@ -673,7 +980,7 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
 function resetToInitialView() {
   document.getElementById("searchInput").value = "";
   clearHighlights();
-  clearAllPickedLocations();
+  clearPickedLocation();
   closeChecklist();
   selectedMarket = null;
   applyZoneColorState();
