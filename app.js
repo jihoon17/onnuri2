@@ -710,7 +710,16 @@ function drawMarketLabels() {
     content.className = "market-label";
     content.textContent = getMarketLabelText(m);
     content.style.setProperty("--sel-color", colors.dark);
-    content.addEventListener("click", () => selectMarketByLabel(m.baseName));
+    content.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      selectMarketByLabel(m.baseName);
+    });
+    // 더블클릭 시 브라우저 선택/지도 기본 동작으로 파란 강조가 생기는 것 방지
+    content.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
 
     const overlay = new kakao.maps.CustomOverlay({
       map: labelVisible,
@@ -1215,7 +1224,7 @@ function renderInitialOverview() {
   if (!activeOrdered.length) {
     title.textContent = "선택된 유형 없음";
     badge.textContent = "0곳";
-    list.innerHTML = `<div class="result-empty">지도를 볼 기준에서 유형을 하나 이상 선택해주세요.</div>`;
+    list.innerHTML = `<div class="result-empty">지도 표시 기준에서 유형을 하나 이상 선택해주세요.</div>`;
     return;
   }
 
@@ -1257,7 +1266,18 @@ function renderInitialOverview() {
 
   list.querySelectorAll(".result-item").forEach(el => {
     el.addEventListener("click", () => {
-      selectMarketByLabel(el.dataset.market);
+      const marketName = el.dataset.market;
+      // 체크리스트 + 구역 강조
+      clearHighlights();
+      closeChecklist();
+      selectedMarket = marketName;
+      applyZoneColorState();
+      openChecklist(marketName);
+      // 해당 상점가 구역으로 지도 이동
+      const zones = getZonesForMarket(marketName);
+      if (zones.length) {
+        fitBoundsToPaths(zones.map(z => toLatLngPath(z.coords)));
+      }
     });
   });
 }
