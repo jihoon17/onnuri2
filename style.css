@@ -185,6 +185,17 @@ html, body {
   color: var(--muted);
   font-size: 13.5px;
 }
+.result-zone-notice {
+  padding: 10px 16px;
+  background: #e8f4ea;
+  border-bottom: 1px solid #c5e0cb;
+  color: #1f6b34;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.result-zone-notice strong {
+  color: #145228;
+}
 
 /* 지도 영역 */
 .map-wrap {

@@ -170,7 +170,8 @@ function initMap() {
   const defaultCenter = new kakao.maps.LatLng(36.4805, 127.2895); // 보람동 일대 중심
   map = new kakao.maps.Map(container, {
     center: defaultCenter,
-    level: 5
+    level: 5,
+    disableDoubleClickZoom: true
   });
   geocoder = new kakao.maps.services.Geocoder();
 
@@ -324,6 +325,23 @@ function searchParcels(query) {
   );
 }
 
+// 검색어와 정확히(또는 강하게) 일치하는 필지 우선 매칭
+function searchParcelsExact(query) {
+  const q = query.trim();
+  if (!q) return [];
+  const exact = MAP_DATA.parcels.filter(p =>
+    p.address === q ||
+    (p.roadAddress && p.roadAddress === q) ||
+    abbreviateRoadAddress(p.roadAddress || "") === q
+  );
+  if (exact.length) return exact;
+  // 지번/도로명이 검색어로 끝나거나 포함되는 경우
+  return MAP_DATA.parcels.filter(p =>
+    p.address.includes(q) ||
+    (p.roadAddress && p.roadAddress.includes(q))
+  );
+}
+
 function fitBoundsToPaths(paths) {
   if (!paths.length) return;
   const bounds = new kakao.maps.LatLngBounds();
@@ -385,28 +403,24 @@ function applyZoneColorState() {
   });
 }
 
-// 라벨 클릭 3단계 사이클:
-// 1번 클릭: 그 구역만 진한 파란색으로 강조 (나머지는 하늘색 유지)
-// 2번 클릭(같은 라벨): 그 상점가에 속한 주소 체크리스트(흰색 박스)를 표시
-// 3번 클릭(같은 라벨): 완전히 원래 상태로 복귀 (체크리스트 닫힘, 강조 해제)
+// 라벨 클릭 토글:
+// 1번 클릭: 그 구역만 진한 색으로 강조 + 주소 체크리스트 표시
+// 같은 라벨 다시 클릭: 강조 해제 + 체크리스트 닫기
 // 체크리스트의 X 버튼을 누르면 강조는 유지한 채 체크리스트만 닫힘
 // 지도의 줌 레벨/범위는 변경하지 않고 색상/체크리스트만 바꿈
 function selectMarketByLabel(marketName) {
-  if (selectedMarket !== marketName) {
+  if (selectedMarket === marketName) {
+    // 이미 강조된 라벨을 다시 클릭 → 강조 해제
     closeChecklist();
-    selectedMarket = marketName;
+    selectedMarket = null;
     applyZoneColorState();
     return;
   }
 
-  if (checklistMarket !== marketName) {
-    openChecklist(marketName);
-    return;
-  }
-
   closeChecklist();
-  selectedMarket = null;
+  selectedMarket = marketName;
   applyZoneColorState();
+  openChecklist(marketName);
 }
 
 // 체크리스트에서 켠 주소 강조 폴리곤을 모두 지움
@@ -1043,7 +1057,13 @@ function renderResultList(parcels) {
   const alleyCount = matchedMarkets.filter(m => getMarketType(m) === "골목형상점가").length;
   badge.textContent = `골목형상점가 ${alleyCount}곳`;
 
-  list.innerHTML = parcels.map(p => `
+  // 어느 구역(상점가)에 포함되는지 안내
+  const zoneNames = [...new Set(parcels.map(p => getMarketDisplayName(p.market)))];
+  const zoneNotice = zoneNames.length
+    ? `<div class="result-zone-notice">📍 검색 주소가 포함된 구역: <strong>${zoneNames.join(", ")}</strong></div>`
+    : "";
+
+  list.innerHTML = zoneNotice + parcels.map(p => `
     <div class="result-item" data-market="${p.market}" data-id="${p.id}">
       <span class="r-market">${getMarketDisplayName(p.market)}</span>
       <span class="r-addr">${formatParcelAddress(p)}</span>
@@ -1101,19 +1121,56 @@ function geocodeFallbackSearch(query) {
   geocoder.addressSearch(query, (result, status) => {
     if (status === kakao.maps.services.Status.OK && result[0]) {
       const coords = new kakao.maps.LatLng(result[0].y, result[0].x);
+      const clickLat = coords.getLat();
+      const clickLng = coords.getLng();
 
       clearHighlights();
       closeChecklist();
       selectedMarket = null;
       applyZoneColorState();
 
+      // 검색된 좌표가 등록된 구역/필지 안에 있는지 한 번 더 확인
+      const parcel = findParcelAt(coords);
+      const zone = findZoneAt(coords);
+
+      if (zone || parcel) {
+        // 데이터 시트에는 주소 문자열이 없었지만 좌표상 구역 안인 경우
+        const matchedParcels = parcel ? [parcel] : MAP_DATA.parcels.filter(p => p.market === zone.market);
+        if (matchedParcels.length) {
+          renderResultList(matchedParcels);
+          focusOnParcels(matchedParcels);
+          return;
+        }
+      }
+
       map.setCenter(coords);
       map.setLevel(4);
-      const marker = new kakao.maps.Marker({ map, position: coords });
-      highlightOverlays.push({ marker });
+
+      let jibunFull = "";
+      let roadFull = "";
+      let labelText = query;
+      if (result[0].address) {
+        jibunFull = result[0].address.address_name || "";
+        labelText = stripCityName(jibunFull, result[0].address.region_1depth_name) || jibunFull || query;
+      }
+      if (result[0].road_address) {
+        roadFull = result[0].road_address.address_name || "";
+      }
+
+      // 우클릭/꾹 누르기와 동일하게 핀 표시
+      addPickedPin({
+        center: coords,
+        hitCoords: null,
+        labelText,
+        jibunFull,
+        roadFull,
+        parcelAddress: jibunFull || query,
+        key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
+        showPurple: false
+      });
 
       const list = document.getElementById("resultList");
-      list.innerHTML = `<div class="result-empty">등록된 상점가 데이터에는 없는 주소입니다. 입력하신 주소 위치로 지도를 이동했습니다.</div>`;
+      list.innerHTML = `<div class="result-empty">⚠️ 입력하신 주소는 등록된 상점가 구역 내에 포함되어 있지 않습니다. 해당 위치로 이동해 표시했습니다.</div>`;
       document.getElementById("resultTitle").textContent = "검색 결과";
       document.getElementById("alleyCountBadge").style.display = "";
       document.getElementById("alleyCountBadge").textContent = "골목형상점가 0곳";
@@ -1131,12 +1188,16 @@ function handleSearch() {
   const query = document.getElementById("searchInput").value;
   if (!query.trim()) return;
 
-  const matched = searchParcels(query);
-  renderResultList(matched);
+  // 주소처럼 보이면 정확한 주소 매칭 우선, 아니면 시장명 포함 검색
+  const q = query.trim();
+  const looksLikeAddress = /\d/.test(q) || q.includes("-") || q.includes("로") || q.includes("길");
+  const matched = looksLikeAddress ? searchParcelsExact(q) : searchParcels(q);
 
   if (matched.length) {
+    renderResultList(matched);
     focusOnParcels(matched);
   } else if (map) {
+    // 등록 데이터에 없으면 지오코딩 후 구역 외 안내 + 핀 표시
     geocodeFallbackSearch(query);
   }
 }
