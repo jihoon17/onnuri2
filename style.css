@@ -177,7 +177,26 @@ html, body {
   justify-content: space-between;
   gap: 8px;
 }
-.result-item:hover { background: #dcebfa; }
+/* 유형별 배경색: 전통시장=옅은 노랑, 상점가=옅은 초록, 골목형=옅은 파랑 */
+.result-item[data-type="전통시장"] {
+  background: #fff8d6;
+}
+.result-item[data-type="상점가"] {
+  background: #e5f6ea;
+}
+.result-item[data-type="골목형상점가"] {
+  background: #e8f0fe;
+}
+.result-item:hover { filter: brightness(0.97); }
+.result-item[data-type="전통시장"]:hover {
+  background: #fff3b0;
+}
+.result-item[data-type="상점가"]:hover {
+  background: #d4efdc;
+}
+.result-item[data-type="골목형상점가"]:hover {
+  background: #d6e4fc;
+}
 .result-item .r-market { font-weight: 600; color: var(--primary-dark); }
 .result-item .r-addr { color: var(--muted); }
 .result-empty {

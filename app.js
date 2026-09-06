@@ -487,8 +487,9 @@ function openChecklist(marketName) {
       const proj = map.getProjection();
       const pt = proj.containerPointFromCoords(new kakao.maps.LatLng(topPoint.lat, topPoint.lng));
       const wrapRect = mapWrap.getBoundingClientRect();
-      initLeft = Math.max(8, Math.min(pt.x - 40, wrapRect.width - 220));
-      initTop = Math.max(40, Math.min(pt.y - 120, wrapRect.height - 180));
+      // 라벨 바로 위가 아니라 오른쪽으로 살짝 비켜 배치
+      initLeft = Math.max(8, Math.min(pt.x + 28, wrapRect.width - 240));
+      initTop = Math.max(40, Math.min(pt.y - 100, wrapRect.height - 180));
     } catch (e) { /* ignore */ }
   }
 
@@ -1174,12 +1175,14 @@ function renderResultList(parcels) {
     ? `<div class="result-zone-notice">📍 검색 주소가 포함된 구역: <strong>${zoneNames.join(", ")}</strong></div>`
     : "";
 
-  list.innerHTML = zoneNotice + parcels.map(p => `
-    <div class="result-item" data-market="${p.market}" data-id="${p.id}">
+  list.innerHTML = zoneNotice + parcels.map(p => {
+    const type = getMarketType(p.market) || "";
+    return `
+    <div class="result-item" data-market="${p.market}" data-id="${p.id}" data-type="${type}">
       <span class="r-market">${getMarketDisplayName(p.market)}</span>
       <span class="r-addr">${formatParcelAddress(p)}</span>
-    </div>
-  `).join("");
+    </div>`;
+  }).join("");
 
   list.querySelectorAll(".result-item").forEach(el => {
     el.addEventListener("click", () => {
@@ -1245,7 +1248,7 @@ function renderInitialOverview() {
     const zoneCount = getZonesForMarket(m.baseName).length;
     const typeLabel = TYPE_LABEL_SHORT[m.type] || m.type;
     return `
-      <div class="result-item" data-market="${m.baseName}">
+      <div class="result-item" data-market="${m.baseName}" data-type="${m.type}">
         <span class="r-market">${getMarketLabelText(m)}</span>
         <span class="r-addr">${typeLabel} · 구역 ${zoneCount}개</span>
       </div>
