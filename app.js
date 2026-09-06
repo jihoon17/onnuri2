@@ -85,12 +85,41 @@ async function loadExcelData(url) {
     };
   });
 
+  // 경계좌표는 두 가지 형식을 지원:
+  // 1) 기존 형식: [{"lat":.., "lng":..}, ...]
+  // 2) GeoJSON 형식: {"type":"Polygon"|"MultiPolygon", "coordinates": [...]}
+  //    (GeoJSON은 좌표 순서가 [경도, 위도]이고, MultiPolygon은 폴리곤이 여러 겹 중첩된 배열입니다.
+  //     이 데이터는 폴리곤/링이 항상 1개씩이라 첫 번째 폴리곤의 바깥 링만 사용합니다.)
+  function geoJsonToFlatPoints(geo, sheetLabel, rowNo) {
+    let ring;
+    if (geo.type === "Polygon") {
+      ring = geo.coordinates[0];
+    } else if (geo.type === "MultiPolygon") {
+      ring = geo.coordinates[0][0];
+    } else {
+      throw new Error(`"${sheetLabel}" 시트 ${rowNo}번째 행: 지원하지 않는 GeoJSON 타입(${geo.type})입니다.`);
+    }
+    if (!ring || !ring.length) {
+      throw new Error(`"${sheetLabel}" 시트 ${rowNo}번째 행의 좌표가 비어 있습니다.`);
+    }
+    return ring.map(pos => ({ lat: pos[1], lng: pos[0] }));
+  }
+
   function parseCoords(raw, sheetLabel, rowNo) {
+    let parsed;
     try {
-      return JSON.parse(raw);
+      parsed = JSON.parse(raw);
     } catch (e) {
       throw new Error(`"${sheetLabel}" 시트 ${rowNo}번째 행의 경계좌표 형식이 올바르지 않습니다.`);
     }
+
+    if (Array.isArray(parsed)) {
+      return parsed; // 기존 [{lat,lng}, ...] 형식
+    }
+    if (parsed && typeof parsed === "object" && parsed.type && parsed.coordinates) {
+      return geoJsonToFlatPoints(parsed, sheetLabel, rowNo); // GeoJSON 형식
+    }
+    throw new Error(`"${sheetLabel}" 시트 ${rowNo}번째 행의 경계좌표 형식을 인식할 수 없습니다.`);
   }
 
   const parcels = addrRows.map((r, i) => ({
