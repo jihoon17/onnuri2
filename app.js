@@ -49,28 +49,62 @@ async function loadExcelData(url) {
   const buf = await resp.arrayBuffer();
   const wb = XLSX.read(buf, { type: "array" });
 
+  const REQUIRED_SHEETS = ["시장개요", "시장별주소", "구역"];
+  const missing = REQUIRED_SHEETS.filter(name => !wb.Sheets[name]);
+  if (missing.length) {
+    throw new Error(
+      `엑셀 파일에 "${missing.join(", ")}" 시트가 없습니다. ` +
+      `실제 시트 목록: ${wb.SheetNames.join(", ")}`
+    );
+  }
+
   const overviewRows = XLSX.utils.sheet_to_json(wb.Sheets["시장개요"], { defval: "" });
   const addrRows = XLSX.utils.sheet_to_json(wb.Sheets["시장별주소"], { defval: "" });
   const zoneRows = XLSX.utils.sheet_to_json(wb.Sheets["구역"], { defval: "" });
 
-  const markets = overviewRows.map(r => ({
-    id: r["순번"],
-    type: String(r["구분"]).trim(),
-    name: String(r["명칭"]).trim()
-  }));
+  // 시장개요의 "명칭"은 보통 "지역명 + 구분"으로 되어 있어(예: "보람동 골목형상점가")
+  // 시장별주소/구역 시트의 "소속시장"(예: "보람동")과 글자가 다릅니다.
+  // 매칭용 baseName은 명칭에서 맨 뒤의 구분(유형) 글자를 떼어낸 값이고,
+  // 화면에 보여줄 때는 원래 명칭(name)을 그대로 씁니다.
+  function computeBaseName(name, type) {
+    const suffix = " " + type;
+    if (type && name.endsWith(suffix)) {
+      return name.slice(0, -suffix.length).trim();
+    }
+    return name;
+  }
 
-  const parcels = addrRows.map(r => ({
+  const markets = overviewRows.map(r => {
+    const type = String(r["구분"]).trim();
+    const name = String(r["명칭"]).trim();
+    return {
+      id: r["순번"],
+      type,
+      name,                              // 화면 표시용 (엑셀 원본 명칭 그대로)
+      baseName: computeBaseName(name, type) // 구역/필지 매칭용
+    };
+  });
+
+  function parseCoords(raw, sheetLabel, rowNo) {
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      throw new Error(`"${sheetLabel}" 시트 ${rowNo}번째 행의 경계좌표 형식이 올바르지 않습니다.`);
+    }
+  }
+
+  const parcels = addrRows.map((r, i) => ({
     id: r["순번"],
     market: String(r["소속시장"]).trim(),
     address: String(r["주소"]).trim(),
-    coords: JSON.parse(r["경계좌표"])
+    coords: parseCoords(r["경계좌표"], "시장별주소", i + 2)
   }));
 
-  const zones = zoneRows.map(r => ({
+  const zones = zoneRows.map((r, i) => ({
     id: r["순번"],
     market: String(r["소속시장"]).trim(),
     zoneNo: r["구역순번"],
-    coords: JSON.parse(r["경계좌표"])
+    coords: parseCoords(r["경계좌표"], "구역", i + 2)
   }));
 
   return { markets, parcels, zones };
@@ -191,8 +225,14 @@ function getZonesForMarket(marketName) {
 }
 
 function getMarketType(marketName) {
-  const m = MAP_DATA.markets.find(m => m.name === marketName);
+  const m = MAP_DATA.markets.find(m => m.baseName === marketName);
   return m ? m.type : null;
+}
+
+// 매칭용 baseName으로 화면에 보여줄 원래 명칭을 찾음 (없으면 baseName 그대로 반환)
+function getMarketDisplayName(marketName) {
+  const m = MAP_DATA.markets.find(m => m.baseName === marketName);
+  return m ? m.name : marketName;
 }
 
 // 좌표 목록 중 위도(lat)가 가장 높은 좌표 반환
@@ -228,7 +268,7 @@ function drawAllZonesBase() {
   zoneOverlaysByMarket = {};
 
   MAP_DATA.markets.forEach(m => {
-    const zones = getZonesForMarket(m.name);
+    const zones = getZonesForMarket(m.baseName);
     const colors = getTypeColor(m.type);
     const visible = activeTypes.has(m.type) ? map : null;
     const polygons = zones.map(z => {
@@ -244,7 +284,7 @@ function drawAllZonesBase() {
         zIndex: 1
       });
     });
-    zoneOverlaysByMarket[m.name] = polygons;
+    zoneOverlaysByMarket[m.baseName] = polygons;
   });
 }
 
@@ -358,7 +398,7 @@ function openChecklist(marketName) {
 
   const title = document.createElement("div");
   title.className = "addr-checklist-title";
-  title.textContent = `${marketName} 주소`;
+  title.textContent = `${getMarketDisplayName(marketName)} 주소`;
   box.appendChild(title);
 
   if (!parcels.length) {
@@ -429,7 +469,7 @@ function drawMarketLabels() {
   marketLabelOverlays = [];
 
   MAP_DATA.markets.forEach(m => {
-    const zones = getZonesForMarket(m.name);
+    const zones = getZonesForMarket(m.baseName);
     if (!zones.length) return;
 
     const allCoords = zones.flatMap(z => z.coords);
@@ -451,7 +491,7 @@ function drawMarketLabels() {
     content.className = "market-label";
     content.textContent = m.name;
     content.style.setProperty("--sel-color", colors.dark);
-    content.addEventListener("click", () => selectMarketByLabel(m.name));
+    content.addEventListener("click", () => selectMarketByLabel(m.baseName));
 
     const overlay = new kakao.maps.CustomOverlay({
       map: visible,
@@ -462,7 +502,7 @@ function drawMarketLabels() {
       zIndex: 21
     });
 
-    marketLabelOverlays.push({ marketName: m.name, type: m.type, marker, overlay, content });
+    marketLabelOverlays.push({ marketName: m.baseName, type: m.type, marker, overlay, content });
   });
 }
 
@@ -739,7 +779,7 @@ function handleMapPick(latlng) {
   if (zone || parcel) {
     const labelText = parcel
       ? (parcel.address || parcel.market || "선택한 위치")
-      : (zone.market ? `${zone.market} 구역${zone.zoneNo || ""}` : "선택한 구역");
+      : (zone.market ? `${getMarketDisplayName(zone.market)} 구역${zone.zoneNo || ""}` : "선택한 구역");
     const jibunFull = parcel ? (parcel.address || "") : "";
     const parcelAddress = parcel ? (parcel.address || "") : (zone ? (zone.market || "") : "");
     // 보라색은 구역 좌표 우선 (필지마다 겹쳐 진해지지 않도록)
@@ -912,7 +952,7 @@ function renderResultList(parcels) {
 
   list.innerHTML = parcels.map(p => `
     <div class="result-item" data-market="${p.market}" data-id="${p.id}">
-      <span class="r-market">${p.market}</span>
+      <span class="r-market">${getMarketDisplayName(p.market)}</span>
       <span class="r-addr">${p.address}</span>
     </div>
   `).join("");
@@ -944,9 +984,9 @@ function renderInitialOverview() {
   }
 
   list.innerHTML = alleyMarkets.map(m => {
-    const zoneCount = getZonesForMarket(m.name).length;
+    const zoneCount = getZonesForMarket(m.baseName).length;
     return `
-      <div class="result-item" data-market="${m.name}">
+      <div class="result-item" data-market="${m.baseName}">
         <span class="r-market">${m.name}</span>
         <span class="r-addr">구역 ${zoneCount}개</span>
       </div>
@@ -1131,22 +1171,53 @@ document.getElementById("micBtn").addEventListener("click", () => {
 /* =========================================================
    9. 초기화
    ========================================================= */
-Promise.all([loadKakaoSdk(KAKAO_APP_KEY), loadExcelData(EXCEL_FILE_URL)])
-  .then(([_, data]) => {
-    MAP_DATA = data;
+
+// 검색 결과 패널에 에러 메시지를 표시 (엑셀/카카오 로딩 실패 시, '불러오는 중' 문구가
+// 그대로 남아있지 않도록 반드시 이 함수로 갱신함)
+function showLoadError(message) {
+  const title = document.getElementById("resultTitle");
+  const badge = document.getElementById("alleyCountBadge");
+  const list = document.getElementById("resultList");
+  if (title) title.textContent = "불러오기 실패";
+  if (badge) badge.style.display = "none";
+  if (list) list.innerHTML = `<div class="result-empty">⚠️ ${message}</div>`;
+}
+
+Promise.allSettled([loadKakaoSdk(KAKAO_APP_KEY), loadExcelData(EXCEL_FILE_URL)])
+  .then(([kakaoResult, dataResult]) => {
+    // 1) 카카오 SDK 자체가 실패하면 지도 영역에도 안내하고 여기서 종료
+    if (kakaoResult.status === "rejected") {
+      const err = kakaoResult.reason;
+      const msg = (err && err.message === "NO_KEY")
+        ? "카카오 지도 API 키가 설정되지 않았습니다."
+        : "카카오 지도 SDK를 불러오지 못했습니다. (네트워크 상태 또는 도메인 등록을 확인해주세요)";
+      showFallback(msg);
+      showLoadError(msg);
+      return;
+    }
+
+    // 2) 카카오 지도는 켰지만, 엑셀 데이터를 못 읽은 경우 - 지도는 표시하되 에러를 명확히 안내
+    if (dataResult.status === "rejected") {
+      const err = dataResult.reason;
+      let msg;
+      if (err && err.message === "EXCEL_FETCH_FAIL") {
+        msg = `엑셀 데이터 파일(${EXCEL_FILE_URL})을 찾을 수 없습니다. index.html과 같은 폴더에 파일이 있는지, ` +
+              `파일명 대소문자까지 정확한지 확인해주세요. file://로 직접 열었다면 로컬 서버(예: ` +
+              `python3 -m http.server)나 GitHub Pages 같은 웹 서버로 열어야 합니다.`;
+      } else {
+        msg = `엑셀 데이터를 읽는 중 오류가 발생했습니다: ${err && err.message ? err.message : err}`;
+      }
+      initMap();
+      showLoadError(msg);
+      return;
+    }
+
+    // 3) 정상 로드
+    MAP_DATA = dataResult.value;
     initMap();
-    drawAllZonesBase();   // 모든 구역을 파란색으로 항상 표시
+    drawAllZonesBase();   // 유형별 색으로 모든 구역 표시
     drawMarketLabels();   // 각 구역 최고 위도 지점에 명칭 라벨 표시
     renderInitialOverview();
     const allPaths = MAP_DATA.zones.map(z => toLatLngPath(z.coords));
     fitBoundsToPaths(allPaths);
-  })
-  .catch((err) => {
-    if (err.message === "NO_KEY") {
-      showFallback("카카오 지도 API 키가 설정되지 않았습니다.");
-    } else if (err.message === "EXCEL_FETCH_FAIL") {
-      showFallback(`엑셀 데이터 파일(${EXCEL_FILE_URL})을 불러오지 못했습니다. index.html과 같은 위치에 파일이 있는지 확인해주세요.`);
-    } else {
-      showFallback("카카오 지도를 불러오지 못했습니다.");
-    }
   });
