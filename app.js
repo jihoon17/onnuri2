@@ -479,19 +479,11 @@ function openChecklist(marketName) {
   const mapWrap = document.querySelector(".map-wrap") || document.getElementById("map")?.parentElement;
   if (!mapWrap) return;
 
-  // 라벨 근처 화면 좌표로 초기 위치 잡기
-  let initLeft = 16;
-  let initTop = 56;
-  if (topPoint && map) {
-    try {
-      const proj = map.getProjection();
-      const pt = proj.containerPointFromCoords(new kakao.maps.LatLng(topPoint.lat, topPoint.lng));
-      const wrapRect = mapWrap.getBoundingClientRect();
-      // 라벨을 가리지 않도록 오른쪽으로 더 비켜 배치
-      initLeft = Math.max(8, Math.min(pt.x + 56, wrapRect.width - 240));
-      initTop = Math.max(40, Math.min(pt.y - 100, wrapRect.height - 180));
-    } catch (e) { /* ignore */ }
-  }
+  // 체크리스트는 항상 지도 우측 상단에 표시
+  const wrapRect = mapWrap.getBoundingClientRect();
+  const panelW = 240;
+  const initLeft = Math.max(8, wrapRect.width - panelW - 12);
+  const initTop = 12;
 
   const panel = document.createElement("div");
   panel.id = "addrChecklistPanel";
