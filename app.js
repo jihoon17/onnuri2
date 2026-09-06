@@ -175,6 +175,10 @@ function initMap() {
   });
   geocoder = new kakao.maps.services.Geocoder();
 
+  // 지도 / 스카이뷰 전환 버튼 (왼쪽 상단)
+  const mapTypeControl = new kakao.maps.MapTypeControl();
+  map.addControl(mapTypeControl, kakao.maps.ControlPosition.TOPLEFT);
+
   // 줌 레벨 변경 시 라벨 표시/숨김 (마커는 항상 유지)
   kakao.maps.event.addListener(map, "zoom_changed", () => {
     updateLabelVisibilityByZoom();
@@ -404,13 +408,16 @@ function applyZoneColorState() {
 }
 
 // 라벨 클릭 토글:
-// 1번 클릭: 그 구역만 진한 색으로 강조 + 주소 체크리스트 표시
-// 같은 라벨 다시 클릭: 강조 해제 + 체크리스트 닫기
+// 1번 클릭: 검색 빨간 강조 제거 + 구역 진한 색 강조 + 주소 체크리스트 표시
+// 같은 라벨 다시 클릭: 구역 강조 해제 + 체크리스트 닫기 (+ 검색 빨간 강조도 제거)
 // 체크리스트의 X 버튼을 누르면 강조는 유지한 채 체크리스트만 닫힘
 // 지도의 줌 레벨/범위는 변경하지 않고 색상/체크리스트만 바꿈
 function selectMarketByLabel(marketName) {
+  // 검색으로 생긴 빨간 강조는 라벨 클릭 시 항상 제거
+  clearHighlights();
+
   if (selectedMarket === marketName) {
-    // 이미 강조된 라벨을 다시 클릭 → 강조 해제
+    // 이미 강조된 라벨을 다시 클릭 → 강조 해제 + 체크리스트 닫기
     closeChecklist();
     selectedMarket = null;
     applyZoneColorState();
@@ -432,9 +439,12 @@ function clearChecklistHighlights() {
 // 체크리스트(흰색 박스)와 그 안에서 켠 주소 강조를 모두 닫음 (X 버튼 클릭 시에도 호출됨)
 function closeChecklist() {
   if (checklistOverlay) {
-    checklistOverlay.setMap(null);
+    // 예전 CustomOverlay 호환
+    try { checklistOverlay.setMap(null); } catch (e) {}
     checklistOverlay = null;
   }
+  const floating = document.getElementById("addrChecklistPanel");
+  if (floating) floating.remove();
   clearChecklistHighlights();
   checklistMarket = null;
 }
@@ -454,7 +464,9 @@ function drawChecklistHighlight(parcel) {
   });
 }
 
-// 특정 상점가에 속한 주소 체크리스트(흰색 박스)를 라벨 위치에 표시
+// 특정 상점가에 속한 주소 체크리스트(흰색 박스)
+// - 지도 위 플로팅 패널로 표시 (드래그 / 리사이즈 가능)
+// - 제목 바를 좌클릭 드래그하면 이동, 오른쪽 하단 핸들로 크기 조절
 function openChecklist(marketName) {
   closeChecklist();
 
@@ -462,12 +474,37 @@ function openChecklist(marketName) {
   const zones = getZonesForMarket(marketName);
   const allCoords = zones.flatMap(z => z.coords);
   const topPoint = getHighestLatPoint(allCoords);
-  if (!topPoint) return;
 
-  const position = new kakao.maps.LatLng(topPoint.lat, topPoint.lng);
+  const mapWrap = document.querySelector(".map-wrap") || document.getElementById("map")?.parentElement;
+  if (!mapWrap) return;
 
-  const box = document.createElement("div");
-  box.className = "addr-checklist";
+  // 라벨 근처 화면 좌표로 초기 위치 잡기
+  let initLeft = 16;
+  let initTop = 56;
+  if (topPoint && map) {
+    try {
+      const proj = map.getProjection();
+      const pt = proj.containerPointFromCoords(new kakao.maps.LatLng(topPoint.lat, topPoint.lng));
+      const wrapRect = mapWrap.getBoundingClientRect();
+      initLeft = Math.max(8, Math.min(pt.x - 40, wrapRect.width - 220));
+      initTop = Math.max(40, Math.min(pt.y - 120, wrapRect.height - 180));
+    } catch (e) { /* ignore */ }
+  }
+
+  const panel = document.createElement("div");
+  panel.id = "addrChecklistPanel";
+  panel.className = "addr-checklist-panel";
+  panel.style.left = initLeft + "px";
+  panel.style.top = initTop + "px";
+
+  // 헤더(드래그 핸들)
+  const header = document.createElement("div");
+  header.className = "addr-checklist-header";
+
+  const title = document.createElement("div");
+  title.className = "addr-checklist-title";
+  title.textContent = `${getMarketDisplayName(marketName)} 주소`;
+  header.appendChild(title);
 
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
@@ -479,18 +516,17 @@ function openChecklist(marketName) {
     e.stopPropagation();
     closeChecklist();
   });
-  box.appendChild(closeBtn);
+  header.appendChild(closeBtn);
+  panel.appendChild(header);
 
-  const title = document.createElement("div");
-  title.className = "addr-checklist-title";
-  title.textContent = `${getMarketDisplayName(marketName)} 주소`;
-  box.appendChild(title);
+  const body = document.createElement("div");
+  body.className = "addr-checklist-body";
 
   if (!parcels.length) {
     const empty = document.createElement("div");
     empty.className = "addr-checklist-empty";
     empty.textContent = "등록된 주소가 없습니다.";
-    box.appendChild(empty);
+    body.appendChild(empty);
   }
 
   parcels.forEach(p => {
@@ -513,19 +549,93 @@ function openChecklist(marketName) {
 
     row.appendChild(checkbox);
     row.appendChild(span);
-    box.appendChild(row);
+    body.appendChild(row);
   });
+  panel.appendChild(body);
 
-  checklistOverlay = new kakao.maps.CustomOverlay({
-    map,
-    position,
-    content: box,
-    yAnchor: 1,
-    xAnchor: 0.5,
-    zIndex: 60
-  });
+  // 리사이즈 핸들
+  const resizeHandle = document.createElement("div");
+  resizeHandle.className = "addr-checklist-resize";
+  resizeHandle.title = "드래그해서 크기 조절";
+  panel.appendChild(resizeHandle);
 
+  mapWrap.appendChild(panel);
   checklistMarket = marketName;
+  // CustomOverlay 자리는 쓰지 않음 (호환용 null)
+  checklistOverlay = null;
+
+  // ---- 드래그 (헤더) ----
+  let dragging = false;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+
+  header.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    if (e.target === closeBtn || closeBtn.contains(e.target)) return;
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    const wrapRect = mapWrap.getBoundingClientRect();
+    dragOffsetX = e.clientX - rect.left;
+    dragOffsetY = e.clientY - rect.top;
+    panel.classList.add("dragging");
+    e.preventDefault();
+  });
+
+  // ---- 리사이즈 ----
+  let resizing = false;
+  let startW = 0, startH = 0, startX = 0, startY = 0;
+
+  resizeHandle.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    resizing = true;
+    startW = panel.offsetWidth;
+    startH = panel.offsetHeight;
+    startX = e.clientX;
+    startY = e.clientY;
+    panel.classList.add("resizing");
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  const onMove = (e) => {
+    if (dragging) {
+      const wrapRect = mapWrap.getBoundingClientRect();
+      let left = e.clientX - wrapRect.left - dragOffsetX;
+      let top = e.clientY - wrapRect.top - dragOffsetY;
+      left = Math.max(0, Math.min(left, wrapRect.width - 80));
+      top = Math.max(0, Math.min(top, wrapRect.height - 40));
+      panel.style.left = left + "px";
+      panel.style.top = top + "px";
+    } else if (resizing) {
+      const dw = e.clientX - startX;
+      const dh = e.clientY - startY;
+      const newW = Math.max(180, Math.min(420, startW + dw));
+      const newH = Math.max(120, Math.min(480, startH + dh));
+      panel.style.width = newW + "px";
+      panel.style.height = newH + "px";
+    }
+  };
+
+  const onUp = () => {
+    if (dragging || resizing) {
+      dragging = false;
+      resizing = false;
+      panel.classList.remove("dragging", "resizing");
+    }
+  };
+
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+
+  // 패널이 제거될 때 리스너 정리
+  const observer = new MutationObserver(() => {
+    if (!document.getElementById("addrChecklistPanel")) {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      observer.disconnect();
+    }
+  });
+  observer.observe(mapWrap, { childList: true });
 }
 
 // 유형 색상에 맞는 핀 모양 마커 이미지 생성 (SVG data URL)

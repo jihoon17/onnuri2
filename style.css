@@ -348,51 +348,80 @@ html, body {
   border-color: #7e22ce transparent transparent transparent;
 }
 
-/* 상점가 주소 체크리스트 (라벨 두 번째 클릭 시 표시) */
-.addr-checklist {
-  position: relative;
-  transform: translateY(-96px);
+/* 상점가 주소 체크리스트 (플로팅 패널: 드래그 / 리사이즈) */
+.addr-checklist-panel {
+  position: absolute;
+  z-index: 100;
+  width: 240px;
+  height: 220px;
+  min-width: 180px;
+  min-height: 120px;
+  max-width: 420px;
+  max-height: 480px;
+  display: flex;
+  flex-direction: column;
   background: #ffffff;
   color: var(--ink);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 8px 22px rgba(0,0,0,0.22);
-  padding: 10px 32px 10px 12px;
-  min-width: 190px;
-  max-width: 250px;
-  max-height: 220px;
-  overflow-y: auto;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.25);
+  overflow: hidden;
+  user-select: none;
+}
+.addr-checklist-panel.dragging {
+  opacity: 0.95;
+  box-shadow: 0 14px 32px rgba(0,0,0,0.32);
+}
+.addr-checklist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  background: var(--primary);
+  color: #fff;
+  cursor: move;
+  flex: 0 0 auto;
+}
+.addr-checklist-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #fff;
+  margin: 0;
+  padding: 0;
+  border: none;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .addr-checklist-close {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   border-radius: 6px;
-  background: var(--primary-light);
-  color: var(--muted);
+  background: rgba(255,255,255,0.18);
+  color: #fff;
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
   padding: 0;
+  flex: 0 0 auto;
 }
 .addr-checklist-close:hover {
   background: var(--highlight);
   color: #ffffff;
 }
-.addr-checklist-title {
-  font-weight: 700;
-  font-size: 13px;
-  color: var(--primary-dark);
-  margin-bottom: 6px;
-  padding-bottom: 6px;
-  padding-right: 18px;
-  border-bottom: 1px solid var(--border);
+.addr-checklist-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 10px 12px;
+  cursor: default;
+  user-select: text;
 }
 .addr-checklist-empty {
   font-size: 12.5px;
@@ -416,6 +445,20 @@ html, body {
   height: 15px;
   flex: 0 0 auto;
   cursor: pointer;
+}
+.addr-checklist-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.18) 50%);
+  border-bottom-right-radius: 10px;
+}
+.addr-checklist-panel.resizing {
+  opacity: 0.98;
 }
 
 /* 선택한 위치 상세정보 목록 */
