@@ -167,6 +167,11 @@ function initMap() {
   });
   geocoder = new kakao.maps.services.Geocoder();
 
+  // 줌 레벨 변경 시 라벨 표시/숨김 (마커는 항상 유지)
+  kakao.maps.event.addListener(map, "zoom_changed", () => {
+    updateLabelVisibilityByZoom();
+  });
+
   // 화면 픽셀 좌표(clientX, clientY) -> 지도 위경도 변환 (PC 우클릭 / 모바일 꾹 누르기 공통 사용)
   function containerPointToLatLng(clientX, clientY) {
     const rect = container.getBoundingClientRect();
@@ -262,6 +267,14 @@ function getMarketType(marketName) {
 function getMarketDisplayName(marketName) {
   const m = MAP_DATA.markets.find(m => m.baseName === marketName);
   return m ? m.name : marketName;
+}
+
+// 라벨용 짧은 이름: 골목형상점가는 "도담동(골목형)" 형태로 표시
+function getMarketLabelText(market) {
+  if (market.type === "골목형상점가") {
+    return `${market.baseName}(골목형)`;
+  }
+  return market.name;
 }
 
 // 좌표 목록 중 위도(lat)가 가장 높은 좌표 반환
@@ -490,6 +503,24 @@ function createMarkerImage(color) {
 /* =========================================================
    5. 상점가 명칭 라벨 레이어 - 각 구역 중 위도가 가장 높은 지점에 표시
    ========================================================= */
+// 라벨이 보이는 최대 줌 레벨 (이보다 숫자가 크면 = 더 줌아웃되면 라벨 숨김, 마커는 유지)
+// 카카오맵: level 숫자가 클수록 더 멀리 보임
+const LABEL_MAX_LEVEL = 6;
+
+function updateLabelVisibilityByZoom() {
+  if (!map) return;
+  const level = map.getLevel();
+  const showLabel = level <= LABEL_MAX_LEVEL;
+
+  marketLabelOverlays.forEach(o => {
+    const typeVisible = activeTypes.has(o.type);
+    // 마커는 유형 필터만 따름
+    o.marker.setMap(typeVisible ? map : null);
+    // 라벨은 유형 필터 + 줌 레벨 둘 다 만족해야 표시
+    o.overlay.setMap(typeVisible && showLabel ? map : null);
+  });
+}
+
 function drawMarketLabels() {
   marketLabelOverlays.forEach(o => {
     if (o.marker) o.marker.setMap(null);
@@ -507,7 +538,11 @@ function drawMarketLabels() {
 
     const position = new kakao.maps.LatLng(topPoint.lat, topPoint.lng);
     const colors = getTypeColor(m.type);
-    const visible = activeTypes.has(m.type) ? map : null;
+    const typeVisible = activeTypes.has(m.type);
+    const level = map ? map.getLevel() : 5;
+    const showLabel = level <= LABEL_MAX_LEVEL;
+    const visible = typeVisible ? map : null;
+    const labelVisible = typeVisible && showLabel ? map : null;
 
     const marker = new kakao.maps.Marker({
       map: visible,
@@ -518,12 +553,12 @@ function drawMarketLabels() {
 
     const content = document.createElement("div");
     content.className = "market-label";
-    content.textContent = m.name;
+    content.textContent = getMarketLabelText(m);
     content.style.setProperty("--sel-color", colors.dark);
     content.addEventListener("click", () => selectMarketByLabel(m.baseName));
 
     const overlay = new kakao.maps.CustomOverlay({
-      map: visible,
+      map: labelVisible,
       position,
       content,
       yAnchor: 1,
@@ -1107,6 +1142,7 @@ document.getElementById("resetBtn").addEventListener("click", resetToInitialView
 
 /* -------- 지도를 볼 기준: 전통시장/상점가/골목형상점가 유형별 필터 -------- */
 // activeTypes에 들어있는 유형만 구역/라벨/마커를 지도에 표시
+// 라벨은 추가로 줌 레벨 조건도 만족해야 표시
 function applyTypeVisibility() {
   Object.entries(zoneOverlaysByMarket).forEach(([marketName, polygons]) => {
     const type = getMarketType(marketName);
@@ -1114,10 +1150,27 @@ function applyTypeVisibility() {
     polygons.forEach(p => p.setMap(visible));
   });
 
-  marketLabelOverlays.forEach(o => {
-    const visible = activeTypes.has(o.type) ? map : null;
-    o.marker.setMap(visible);
-    o.overlay.setMap(visible);
+  updateLabelVisibilityByZoom();
+}
+
+// 유형별 개수를 칩 버튼 텍스트에 반영 (예: 골목형 상점가(12))
+function updateTypeChipCounts() {
+  const counts = { "전통시장": 0, "상점가": 0, "골목형상점가": 0 };
+  MAP_DATA.markets.forEach(m => {
+    if (counts[m.type] !== undefined) counts[m.type] += 1;
+  });
+
+  const labelMap = {
+    "전통시장": "전통시장",
+    "상점가": "상점가",
+    "골목형상점가": "골목형 상점가"
+  };
+
+  document.querySelectorAll(".type-chip").forEach(chip => {
+    const type = chip.dataset.type;
+    const count = counts[type] || 0;
+    const baseLabel = labelMap[type] || type;
+    chip.textContent = `${baseLabel}(${count})`;
   });
 }
 
@@ -1246,6 +1299,7 @@ Promise.allSettled([loadKakaoSdk(KAKAO_APP_KEY), loadExcelData(EXCEL_FILE_URL)])
     initMap();
     drawAllZonesBase();   // 유형별 색으로 모든 구역 표시
     drawMarketLabels();   // 각 구역 최고 위도 지점에 명칭 라벨 표시
+    updateTypeChipCounts(); // 유형별 개수 표시
     renderInitialOverview();
     const allPaths = MAP_DATA.zones.map(z => toLatLngPath(z.coords));
     fitBoundsToPaths(allPaths);
