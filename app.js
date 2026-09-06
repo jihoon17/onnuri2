@@ -487,8 +487,8 @@ function openChecklist(marketName) {
       const proj = map.getProjection();
       const pt = proj.containerPointFromCoords(new kakao.maps.LatLng(topPoint.lat, topPoint.lng));
       const wrapRect = mapWrap.getBoundingClientRect();
-      // 라벨 바로 위가 아니라 오른쪽으로 살짝 비켜 배치
-      initLeft = Math.max(8, Math.min(pt.x + 28, wrapRect.width - 240));
+      // 라벨을 가리지 않도록 오른쪽으로 더 비켜 배치
+      initLeft = Math.max(8, Math.min(pt.x + 56, wrapRect.width - 240));
       initTop = Math.max(40, Math.min(pt.y - 100, wrapRect.height - 180));
     } catch (e) { /* ignore */ }
   }

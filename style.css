@@ -185,7 +185,7 @@ html, body {
   background: #e5f6ea;
 }
 .result-item[data-type="골목형상점가"] {
-  background: #e8f0fe;
+  background: #dbeafe;
 }
 .result-item:hover { filter: brightness(0.97); }
 .result-item[data-type="전통시장"]:hover {
@@ -195,7 +195,7 @@ html, body {
   background: #d4efdc;
 }
 .result-item[data-type="골목형상점가"]:hover {
-  background: #d6e4fc;
+  background: #bfdbfe;
 }
 .result-item .r-market { font-weight: 600; color: var(--primary-dark); }
 .result-item .r-addr { color: var(--muted); }
