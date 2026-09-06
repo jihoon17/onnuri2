@@ -122,12 +122,19 @@ async function loadExcelData(url) {
     throw new Error(`"${sheetLabel}" 시트 ${rowNo}번째 행의 경계좌표 형식을 인식할 수 없습니다.`);
   }
 
-  const parcels = addrRows.map((r, i) => ({
-    id: r["순번"],
-    market: String(r["소속시장"]).trim(),
-    address: String(r["주소"]).trim(),
-    coords: parseCoords(r["경계좌표"], "시장별주소", i + 2)
-  }));
+  const parcels = addrRows.map((r, i) => {
+    // 지번주소: 기존 "주소" 컬럼 (또는 "지번주소")
+    const jibun = String(r["주소"] ?? r["지번주소"] ?? "").trim();
+    // 도로명주소: 새로 추가된 컬럼
+    const road = String(r["도로명주소"] ?? "").trim();
+    return {
+      id: r["순번"],
+      market: String(r["소속시장"]).trim(),
+      address: jibun,           // 지번주소 (기존 호환)
+      roadAddress: road,        // 도로명주소
+      coords: parseCoords(r["경계좌표"], "시장별주소", i + 2)
+    };
+  });
 
   const zones = zoneRows.map((r, i) => ({
     id: r["순번"],
@@ -277,6 +284,25 @@ function getMarketLabelText(market) {
   return market.name;
 }
 
+// 도로명주소에서 "세종시" / "세종특별자치시" 등 시 이름 제거한 축약형
+function abbreviateRoadAddress(road) {
+  if (!road) return "";
+  return road
+    .replace(/^세종특별자치시\s*/, "")
+    .replace(/^세종시\s*/, "")
+    .trim();
+}
+
+// 체크리스트 등에 표시할 주소 문자열: 지번주소(도로명주소)
+function formatParcelAddress(parcel) {
+  const jibun = parcel.address || "";
+  const roadShort = abbreviateRoadAddress(parcel.roadAddress || "");
+  if (jibun && roadShort) return `${jibun}(${roadShort})`;
+  if (jibun) return jibun;
+  if (roadShort) return roadShort;
+  return "";
+}
+
 // 좌표 목록 중 위도(lat)가 가장 높은 좌표 반환
 function getHighestLatPoint(coordsList) {
   let best = null;
@@ -286,12 +312,15 @@ function getHighestLatPoint(coordsList) {
   return best;
 }
 
-// 검색어와 매칭되는 필지(주소) 목록 (시장명 또는 주소 포함검색)
+// 검색어와 매칭되는 필지(주소) 목록 (시장명 또는 지번/도로명 주소 포함검색)
 function searchParcels(query) {
   const q = query.trim();
   if (!q) return [];
   return MAP_DATA.parcels.filter(p =>
-    p.market.includes(q) || p.address.includes(q) || q.includes(p.market)
+    p.market.includes(q) ||
+    p.address.includes(q) ||
+    (p.roadAddress && p.roadAddress.includes(q)) ||
+    q.includes(p.market)
   );
 }
 
@@ -466,7 +495,7 @@ function openChecklist(marketName) {
     });
 
     const span = document.createElement("span");
-    span.textContent = p.address;
+    span.textContent = formatParcelAddress(p);
 
     row.appendChild(checkbox);
     row.appendChild(span);
@@ -1017,7 +1046,7 @@ function renderResultList(parcels) {
   list.innerHTML = parcels.map(p => `
     <div class="result-item" data-market="${p.market}" data-id="${p.id}">
       <span class="r-market">${getMarketDisplayName(p.market)}</span>
-      <span class="r-addr">${p.address}</span>
+      <span class="r-addr">${formatParcelAddress(p)}</span>
     </div>
   `).join("");
 
