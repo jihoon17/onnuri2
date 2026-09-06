@@ -167,10 +167,11 @@ function loadKakaoSdk(appkey) {
 
 function initMap() {
   const container = document.getElementById("map");
-  const defaultCenter = new kakao.maps.LatLng(36.4805, 127.2895); // 보람동 일대 중심
+  // 초기 중심: 위도 36.479934, 경도 127.286740 / 줌 레벨 4
+  const defaultCenter = new kakao.maps.LatLng(36.479934, 127.286740);
   map = new kakao.maps.Map(container, {
     center: defaultCenter,
-    level: 5,
+    level: 4,
     disableDoubleClickZoom: true
   });
   geocoder = new kakao.maps.services.Geocoder();
@@ -1190,28 +1191,63 @@ function renderResultList(parcels) {
 }
 
 // 초기 로딩 시: 결과 패널에 전체 골목형상점가 목록을 보여줌 (지도에는 이미 구역 배경이 항상 표시되어 있음)
-function renderInitialOverview() {
-  const alleyMarkets = MAP_DATA.markets.filter(m => m.type === "골목형상점가");
+// 유형 표시명 (제목/배지용)
+const TYPE_LABEL_ORDER = ["전통시장", "상점가", "골목형상점가"];
+const TYPE_LABEL_SHORT = {
+  "전통시장": "전통시장",
+  "상점가": "상점가",
+  "골목형상점가": "골목형 상점가"
+};
 
+// 현재 켜져 있는 유형 기준으로 결과 패널(제목·배지·목록)을 갱신
+function renderInitialOverview() {
   const title = document.getElementById("resultTitle");
   const badge = document.getElementById("alleyCountBadge");
   const list = document.getElementById("resultList");
   badge.style.display = "";
 
-  title.textContent = "골목형상점가 전체 구역도";
-  badge.textContent = `골목형상점가 ${alleyMarkets.length}곳`;
+  const activeOrdered = TYPE_LABEL_ORDER.filter(t => activeTypes.has(t));
+  const visibleMarkets = MAP_DATA.markets.filter(m => activeTypes.has(m.type));
 
-  if (!alleyMarkets.length) {
-    list.innerHTML = `<div class="result-empty">표시할 골목형상점가 데이터가 없습니다.</div>`;
+  if (!activeOrdered.length) {
+    title.textContent = "선택된 유형 없음";
+    badge.textContent = "0곳";
+    list.innerHTML = `<div class="result-empty">지도를 볼 기준에서 유형을 하나 이상 선택해주세요.</div>`;
     return;
   }
 
-  list.innerHTML = alleyMarkets.map(m => {
+  const titleNames = activeOrdered.map(t => TYPE_LABEL_SHORT[t] || t).join(", ");
+  title.textContent = `${titleNames} 전체 구역도`;
+
+  if (activeOrdered.length === 1) {
+    const t = activeOrdered[0];
+    const cnt = visibleMarkets.filter(m => m.type === t).length;
+    badge.textContent = `${TYPE_LABEL_SHORT[t] || t} ${cnt}곳`;
+  } else {
+    badge.textContent = `총 ${visibleMarkets.length}곳`;
+  }
+
+  if (!visibleMarkets.length) {
+    list.innerHTML = `<div class="result-empty">표시할 데이터가 없습니다.</div>`;
+    return;
+  }
+
+  // 유형 순서대로 정렬 후 목록 표시
+  const typeRank = Object.fromEntries(TYPE_LABEL_ORDER.map((t, i) => [t, i]));
+  const sorted = [...visibleMarkets].sort((a, b) => {
+    const ra = typeRank[a.type] ?? 99;
+    const rb = typeRank[b.type] ?? 99;
+    if (ra !== rb) return ra - rb;
+    return (a.name || "").localeCompare(b.name || "", "ko");
+  });
+
+  list.innerHTML = sorted.map(m => {
     const zoneCount = getZonesForMarket(m.baseName).length;
+    const typeLabel = TYPE_LABEL_SHORT[m.type] || m.type;
     return `
       <div class="result-item" data-market="${m.baseName}">
-        <span class="r-market">${m.name}</span>
-        <span class="r-addr">구역 ${zoneCount}개</span>
+        <span class="r-market">${getMarketLabelText(m)}</span>
+        <span class="r-addr">${typeLabel} · 구역 ${zoneCount}개</span>
       </div>
     `;
   }).join("");
@@ -1221,6 +1257,14 @@ function renderInitialOverview() {
       selectMarketByLabel(el.dataset.market);
     });
   });
+}
+
+// 검색 중이 아닐 때만 유형 필터 변경에 맞춰 결과 패널을 개요 모드로 갱신
+function maybeRefreshOverviewPanel() {
+  const q = (document.getElementById("searchInput")?.value || "").trim();
+  if (q) return; // 검색어가 있으면 검색 결과 유지
+  if (highlightOverlays.length) return; // 검색 강조 중이면 유지
+  renderInitialOverview();
 }
 
 /* =========================================================
@@ -1332,9 +1376,9 @@ function resetToInitialView() {
   applyZoneColorState();
   renderInitialOverview();
 
-  if (MAP_DATA.zones.length) {
-    const allPaths = MAP_DATA.zones.map(z => toLatLngPath(z.coords));
-    fitBoundsToPaths(allPaths);
+  if (map) {
+    map.setCenter(new kakao.maps.LatLng(36.479934, 127.286740));
+    map.setLevel(4);
   }
 }
 
@@ -1393,6 +1437,7 @@ document.querySelectorAll(".type-chip").forEach(chip => {
     }
 
     applyTypeVisibility();
+    maybeRefreshOverviewPanel();
   });
 });
 
@@ -1501,6 +1546,7 @@ Promise.allSettled([loadKakaoSdk(KAKAO_APP_KEY), loadExcelData(EXCEL_FILE_URL)])
     drawMarketLabels();   // 각 구역 최고 위도 지점에 명칭 라벨 표시
     updateTypeChipCounts(); // 유형별 개수 표시
     renderInitialOverview();
-    const allPaths = MAP_DATA.zones.map(z => toLatLngPath(z.coords));
-    fitBoundsToPaths(allPaths);
+    // 초기 화면: 지정 중심 + 줌 레벨 4 (fitBounds 사용하지 않음)
+    map.setCenter(new kakao.maps.LatLng(36.479934, 127.286740));
+    map.setLevel(4);
   });
