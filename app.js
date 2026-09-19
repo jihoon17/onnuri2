@@ -913,7 +913,7 @@ function removePickedLocationById(id) {
     renderInitialOverview();
   } else {
     const last = pickedLocations[pickedLocations.length - 1];
-    renderPickedLocationDetails(last.latlng, last.jibunFull, last.roadFull, last.parcelAddress, pickedLocations.length);
+    renderPickedLocationDetails(last.latlng, last.jibunFull, last.roadFull, last.parcelAddress, pickedLocations.length, last.market);
   }
 }
 
@@ -1015,6 +1015,7 @@ function handleMapPick(latlng) {
       jibunFull,
       roadFull: "",
       parcelAddress,
+      market: zone ? zone.market : parcel.market,
       key: `${areaId}|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
       showPurple: true
     });
@@ -1030,6 +1031,7 @@ function handleMapPick(latlng) {
       jibunFull: "",
       roadFull: "",
       parcelAddress: "",
+      market: null,
       key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
       showPurple: false
     });
@@ -1056,6 +1058,7 @@ function handleMapPick(latlng) {
       jibunFull,
       roadFull,
       parcelAddress: jibunFull,
+      market: null,
       key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
       showPurple: false
     });
@@ -1067,7 +1070,7 @@ function handleMapClick(latlng) {
   removePickedAtLatLng(latlng);
 }
 
-function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parcelAddress, key, showPurple }) {
+function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parcelAddress, market, key, showPurple }) {
   // 좌표를 다시 숫자로 복사해 새 LatLng 생성 (참조/변형 문제 방지)
   const pos = new kakao.maps.LatLng(center.getLat(), center.getLng());
   const id = ++pickedLocationIdSeq;
@@ -1121,13 +1124,14 @@ function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parce
     jibunFull: jibunFull || "",
     roadFull: roadFull || "",
     parcelAddress: parcelAddress || "",
+    market: market || null,
     parcelKey: key
   });
 
-  renderPickedLocationDetails(pos, jibunFull || "", roadFull || "", parcelAddress || "", pickedLocations.length);
+  renderPickedLocationDetails(pos, jibunFull || "", roadFull || "", parcelAddress || "", pickedLocations.length, market || null);
 }
 
-function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress, count) {
+function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress, count, market) {
   const title = document.getElementById("resultTitle");
   const badge = document.getElementById("alleyCountBadge");
   const list = document.getElementById("resultList");
@@ -1136,6 +1140,10 @@ function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress,
   title.textContent = n > 1 ? `선택한 위치 상세정보 (${n}개)` : "선택한 위치 상세정보";
   badge.style.display = "none";
 
+  const guideText = market
+    ? `${getMarketDisplayName(market)}에 속해있는 장소입니다.`
+    : "등록된 상점가 구역에 포함되지 않는 위치입니다.";
+
   list.innerHTML = `
     <div class="detail-block">
       <div class="detail-row"><span class="d-label">위치</span><span class="d-value">${parcelAddress || jibunFull || "확인되지 않음"}</span></div>
@@ -1143,7 +1151,7 @@ function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress,
       <div class="detail-row"><span class="d-label">도로명주소</span><span class="d-value">${roadFull || "확인되지 않음"}</span></div>
       <div class="detail-row"><span class="d-label">위도</span><span class="d-value">${latlng.getLat().toFixed(6)}</span></div>
       <div class="detail-row"><span class="d-label">경도</span><span class="d-value">${latlng.getLng().toFixed(6)}</span></div>
-      <div class="detail-row"><span class="d-label">안내</span><span class="d-value">보라색 영역 안을 클릭(또는 다시 우클릭)하면 핀이 사라집니다.</span></div>
+      <div class="detail-row"><span class="d-label">안내</span><span class="d-value">${guideText}</span></div>
     </div>
   `;
 }
@@ -1326,7 +1334,7 @@ function geocodeFallbackSearch(query) {
         roadFull = result[0].road_address.address_name || "";
       }
 
-      // 우클릭/꾹 누르기와 동일하게 핀 표시
+      // 우클릭/꾹 누르기와 동일하게 핀 표시 (핀의 상세정보 패널이 그대로 결과창에 남음)
       addPickedPin({
         center: coords,
         hitCoords: null,
@@ -1334,15 +1342,10 @@ function geocodeFallbackSearch(query) {
         jibunFull,
         roadFull,
         parcelAddress: jibunFull || query,
+        market: null,
         key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
         showPurple: false
       });
-
-      const list = document.getElementById("resultList");
-      list.innerHTML = `<div class="result-empty">⚠️ 입력하신 주소는 등록된 상점가 구역 내에 포함되어 있지 않습니다. 해당 위치로 이동해 표시했습니다.</div>`;
-      document.getElementById("resultTitle").textContent = "검색 결과";
-      document.getElementById("alleyCountBadge").style.display = "";
-      document.getElementById("alleyCountBadge").textContent = "골목형상점가 0곳";
     } else {
       const list = document.getElementById("resultList");
       list.innerHTML = `<div class="result-empty">검색 결과가 없습니다. 시장명 또는 정확한 주소를 입력해주세요.</div>`;

@@ -252,6 +252,14 @@ html, body {
   font-weight: 700;
   font-size: 13.5px;
   margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vc-title-note {
+  font-weight: 400;
+  font-size: 11px;
+  color: rgba(255,255,255,0.8);
 }
 .vc-options {
   display: flex;
@@ -307,15 +315,6 @@ html, body {
   height: 12px;
   border-radius: 3px;
   border: 1px solid rgba(255,255,255,0.6);
-}
-.vc-note {
-  margin-top: 5px;
-  font-size: 11px;
-  color: rgba(255,255,255,0.8);
-  line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* 상점가 명칭 라벨(커스텀 오버레이) */
