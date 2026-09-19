@@ -207,54 +207,31 @@ html, body {
   font-size: 13.5px;
 }
 .result-zone-notice {
-  padding: 12px 16px;
+  padding: 12px 16px 14px;
   background: #e8f4ea;
-  border-bottom: 1px solid #c5e0cb;
+  border-bottom: 2px solid #c5e0cb;
   color: #1f6b34;
   font-size: 14px;
   line-height: 1.5;
   font-weight: 600;
 }
 .result-zone-notice strong {
-  color: #0d3d1c;
   font-weight: 800;
-  font-size: 15px;
-}
-/* 구역 안내 강조 (검색·우클릭 공통) — 라벨 / 구역명 두 줄 배치 */
-.result-zone-notice--emphasis {
-  background: #d4edda;
-  border-bottom: 2px solid #28a745;
-  color: #155724;
-  font-size: 14.5px;
-  padding: 12px 16px 14px;
-}
-.result-zone-notice--emphasis strong {
-  color: #0b3d1a;
-  font-size: 16px;
-  letter-spacing: -0.02em;
-}
-/* 구역 밖일 때 */
-.result-zone-notice--out {
-  background: #f8e8e8;
-  border-bottom: 2px solid #dc3545;
-  color: #721c24;
-  font-size: 14.5px;
-  padding: 12px 16px 14px;
-}
-.result-zone-notice--out strong {
-  color: #491217;
   font-size: 16px;
 }
-.result-zone-notice--out .zone-out-sub {
-  font-weight: 500;
-  font-size: 13px;
-  color: #9a4a52;
-  margin-left: 4px;
+/* 유형별 색상 (인라인 CSS 변수로 적용) */
+.result-zone-notice--typed {
+  background: var(--zn-bg, #e8f4ea);
+  border-bottom: 2px solid var(--zn-border, #c5e0cb);
+  color: var(--zn-text, #1f6b34);
+}
+.result-zone-notice--typed strong {
+  color: var(--zn-strong, #0d3d1c);
 }
 .zone-notice-label {
   font-size: 13px;
   font-weight: 600;
-  opacity: 0.9;
+  opacity: 0.92;
   margin-bottom: 4px;
 }
 .zone-notice-name {
@@ -263,10 +240,17 @@ html, body {
   line-height: 1.35;
   word-break: keep-all;
   overflow-wrap: anywhere;
+  color: var(--zn-strong, inherit);
+}
+.zone-out-sub {
+  font-weight: 500;
+  font-size: 13px;
+  opacity: 0.85;
+  margin-left: 4px;
 }
 /* 구역명 링크: 밑줄 + 클릭 시 구역 강조/이동 */
 .zone-link {
-  color: inherit;
+  color: var(--zn-link, inherit);
   text-decoration: underline;
   text-underline-offset: 3px;
   text-decoration-thickness: 2px;
@@ -274,11 +258,8 @@ html, body {
   font-weight: 800;
 }
 .zone-link:hover {
-  color: #0a5c2a;
+  filter: brightness(0.85);
   text-decoration-thickness: 2.5px;
-}
-.result-zone-notice--out .zone-link {
-  color: #491217;
 }
 .zone-sep {
   font-weight: 600;
@@ -484,8 +465,8 @@ html, body {
 .addr-checklist-panel {
   position: absolute;
   z-index: 100;
-  width: 240px;
-  height: 220px;
+  width: 260px;
+  height: 240px;
   min-width: 180px;
   min-height: 120px;
   max-width: 420px;

@@ -35,6 +35,9 @@ let pickedLocations = []; // [{ id, marker, overlay, latlng, jibunFull, roadFull
 let pickedLocationIdSeq = 0;
 let pickedViewIndex = -1; // 현재 상세정보에 표시 중인 pickedLocations 인덱스
 let pickedAreaPolygons = {}; // areaKey -> { polygon, hitCoords, refCount } (같은 구역 보라색은 하나만)
+// 검색 결과도 우클릭과 동일한 상세 패널로 표시하기 위한 상태
+let searchDetailItems = []; // [{ latlng, jibunFull, roadFull, parcelAddress, market, parcelId }]
+let searchDetailIndex = 0;
 let selectedMarket = null;      // 라벨 클릭으로 선택된 상점가 (null이면 선택 없음)
 let checklistMarket = null;     // 체크리스트가 열려있는 상점가 (null이면 닫힘)
 let checklistOverlay = null;    // 체크리스트 흰색 박스(CustomOverlay)
@@ -310,6 +313,88 @@ function formatParcelAddress(parcel) {
   return "";
 }
 
+// 필지 좌표의 대략적인 중심점
+function getParcelCenter(parcel) {
+  if (!parcel || !parcel.coords || !parcel.coords.length) return null;
+  let lat = 0, lng = 0;
+  parcel.coords.forEach(c => { lat += c.lat; lng += c.lng; });
+  const n = parcel.coords.length;
+  return new kakao.maps.LatLng(lat / n, lng / n);
+}
+
+// 구역 안내 박스 유형별 색상 (전통시장=연노랑, 상점가=연초록, 골목형=연파랑)
+const ZONE_NOTICE_THEME = {
+  "전통시장": {
+    bg: "#fff8d6", border: "#e6b800", text: "#6b5500", strong: "#4a3a00", link: "#5c4a00"
+  },
+  "상점가": {
+    bg: "#e5f6ea", border: "#3fae5a", text: "#1f6b34", strong: "#145228", link: "#0f4d1f"
+  },
+  "골목형상점가": {
+    bg: "#dbeafe", border: "#3b82f6", text: "#1e40af", strong: "#1e3a8a", link: "#1d4ed8"
+  },
+  out: {
+    bg: "#f8e8e8", border: "#dc3545", text: "#721c24", strong: "#491217", link: "#491217"
+  }
+};
+
+function getZoneNoticeTheme(marketName) {
+  if (!marketName) return ZONE_NOTICE_THEME.out;
+  const type = getMarketType(marketName);
+  return ZONE_NOTICE_THEME[type] || ZONE_NOTICE_THEME.out;
+}
+
+/** 검색·우클릭 공통: 구역 안내 HTML (유형별 색 + 다음 줄 구역명 링크) */
+function buildZoneNoticeHtml(marketNames) {
+  const names = (marketNames || []).filter(Boolean);
+  if (!names.length) {
+    const t = ZONE_NOTICE_THEME.out;
+    return `
+      <div class="result-zone-notice result-zone-notice--typed" style="--zn-bg:${t.bg};--zn-border:${t.border};--zn-text:${t.text};--zn-strong:${t.strong};--zn-link:${t.link}">
+        <div class="zone-notice-label">📍 검색 주소가 포함된 구역:</div>
+        <div class="zone-notice-name">
+          <strong>해당 없음</strong>
+          <span class="zone-out-sub">(등록된 상점가 구역 밖)</span>
+        </div>
+      </div>`;
+  }
+  // 여러 구역이면 첫 번째 유형 색을 기준으로 사용
+  const theme = getZoneNoticeTheme(names[0]);
+  const links = names.map(m =>
+    `<a href="#" class="zone-link" data-market="${m}">${getMarketDisplayName(m)}</a>`
+  ).join('<span class="zone-sep">, </span>');
+  return `
+    <div class="result-zone-notice result-zone-notice--typed" style="--zn-bg:${theme.bg};--zn-border:${theme.border};--zn-text:${theme.text};--zn-strong:${theme.strong};--zn-link:${theme.link}">
+      <div class="zone-notice-label">📍 검색 주소가 포함된 구역:</div>
+      <div class="zone-notice-name">${links}</div>
+    </div>`;
+}
+
+/** 검색·우클릭 공통: 상세 정보 행 (지번/도로명/위도/경도) */
+function buildDetailRowsHtml(latlng, jibunFull, roadFull) {
+  const lat = latlng && typeof latlng.getLat === "function" ? latlng.getLat().toFixed(6) : "확인되지 않음";
+  const lng = latlng && typeof latlng.getLng === "function" ? latlng.getLng().toFixed(6) : "확인되지 않음";
+  return `
+    <div class="detail-block">
+      <div class="detail-row"><span class="d-label">지번주소</span><span class="d-value">${jibunFull || "확인되지 않음"}</span></div>
+      <div class="detail-row"><span class="d-label">도로명주소</span><span class="d-value">${roadFull || "확인되지 않음"}</span></div>
+      <div class="detail-row"><span class="d-label">위도</span><span class="d-value">${lat}</span></div>
+      <div class="detail-row"><span class="d-label">경도</span><span class="d-value">${lng}</span></div>
+    </div>`;
+}
+
+function bindZoneLinkClicks(container) {
+  if (!container) return;
+  container.querySelectorAll(".zone-link").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const m = el.getAttribute("data-market");
+      if (m) focusMarketZone(m);
+    });
+  });
+}
+
 // 좌표 목록 중 위도(lat)가 가장 높은 좌표 반환
 function getHighestLatPoint(coordsList) {
   let best = null;
@@ -480,11 +565,11 @@ function openChecklist(marketName) {
   const mapWrap = document.querySelector(".map-wrap") || document.getElementById("map")?.parentElement;
   if (!mapWrap) return;
 
-  // 체크리스트는 항상 지도 우측 상단에 표시
+  // 체크리스트는 지도 우측 상단에 표시 (스크린샷과 동일한 위치)
   const wrapRect = mapWrap.getBoundingClientRect();
-  const panelW = 240;
-  const initLeft = Math.max(8, wrapRect.width - panelW - 12);
-  const initTop = 12;
+  const panelW = 260;
+  const initLeft = Math.max(8, wrapRect.width - panelW - 16);
+  const initTop = 16;
 
   const panel = document.createElement("div");
   panel.id = "addrChecklistPanel";
@@ -1189,76 +1274,72 @@ function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parce
   showPickedLocationAt(pickedViewIndex, false);
 }
 
-function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress, count, market, viewIndex) {
+/**
+ * 검색·우클릭 공통 상세 패널
+ * titleBase: "선택한 위치 상세정보" | "검색 결과"
+ * items: [{ latlng, jibunFull, roadFull, market }]
+ * index: 현재 인덱스
+ * onPrev / onNext: 네비게이션 콜백
+ */
+function renderUnifiedDetailPanel({ titleBase, items, index, onPrev, onNext }) {
   const title = document.getElementById("resultTitle");
   const badge = document.getElementById("alleyCountBadge");
   const list = document.getElementById("resultList");
 
-  const n = count != null ? count : pickedLocations.length;
-  const idx = viewIndex != null ? viewIndex : (pickedViewIndex >= 0 ? pickedViewIndex : n - 1);
+  const n = items.length;
+  const idx = Math.max(0, Math.min(index, n - 1));
+  const item = items[idx] || {};
   const displayNum = n > 0 ? (idx + 1) : 0;
 
-  // 제목 + 여러 개일 때 좌/우 화살표 네비게이션
+  badge.style.display = "none";
+
   if (n > 1) {
     title.innerHTML = `
-      <span class="picked-title-text">선택한 위치 상세정보 (${displayNum}/${n})</span>
-      <span class="picked-nav" role="group" aria-label="선택한 위치 이동">
-        <button type="button" class="picked-nav-btn" id="pickedNavPrev" title="이전 위치">◀</button>
-        <button type="button" class="picked-nav-btn" id="pickedNavNext" title="다음 위치">▶</button>
+      <span class="picked-title-text">${titleBase} (${displayNum}/${n})</span>
+      <span class="picked-nav" role="group" aria-label="위치 이동">
+        <button type="button" class="picked-nav-btn" id="unifiedNavPrev" title="이전">◀</button>
+        <button type="button" class="picked-nav-btn" id="unifiedNavNext" title="다음">▶</button>
       </span>
     `;
-    badge.style.display = "none";
-    // 이벤트는 title 내부 버튼에 바로 연결
-    const prevBtn = document.getElementById("pickedNavPrev");
-    const nextBtn = document.getElementById("pickedNavNext");
-    if (prevBtn) prevBtn.onclick = (e) => { e.stopPropagation(); goPickedPrev(); };
-    if (nextBtn) nextBtn.onclick = (e) => { e.stopPropagation(); goPickedNext(); };
+    const prevBtn = document.getElementById("unifiedNavPrev");
+    const nextBtn = document.getElementById("unifiedNavNext");
+    if (prevBtn && onPrev) prevBtn.onclick = (e) => { e.stopPropagation(); onPrev(); };
+    if (nextBtn && onNext) nextBtn.onclick = (e) => { e.stopPropagation(); onNext(); };
   } else {
-    title.textContent = "선택한 위치 상세정보";
-    badge.style.display = "none";
+    title.textContent = titleBase;
   }
 
-  // 구역 안내는 검색 결과와 동일한 스타일로 강조 표시 (공무원 업무상 가장 중요)
-  // 구역명은 다음 줄에 두고, 밑줄 + 클릭 시 해당 구역으로 이동·강조
-  const zoneName = market ? getMarketDisplayName(market) : null;
-  let zoneNotice;
-  if (zoneName && market) {
-    zoneNotice = `
-      <div class="result-zone-notice result-zone-notice--emphasis">
-        <div class="zone-notice-label">📍 검색 주소가 포함된 구역:</div>
-        <div class="zone-notice-name">
-          <a href="#" class="zone-link" data-market="${market}">${zoneName}</a>
-        </div>
-      </div>`;
-  } else {
-    zoneNotice = `
-      <div class="result-zone-notice result-zone-notice--out">
-        <div class="zone-notice-label">📍 검색 주소가 포함된 구역:</div>
-        <div class="zone-notice-name">
-          <strong>해당 없음</strong>
-          <span class="zone-out-sub">(등록된 상점가 구역 밖)</span>
-        </div>
-      </div>`;
+  const zoneNotice = buildZoneNoticeHtml(item.market ? [item.market] : []);
+  list.innerHTML = zoneNotice + buildDetailRowsHtml(item.latlng, item.jibunFull, item.roadFull);
+  bindZoneLinkClicks(list);
+}
+
+function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress, count, market, viewIndex) {
+  // 검색 상세 상태는 우클릭 상세가 열리면 비움
+  searchDetailItems = [];
+  searchDetailIndex = 0;
+
+  const n = count != null ? count : pickedLocations.length;
+  const idx = viewIndex != null ? viewIndex : (pickedViewIndex >= 0 ? pickedViewIndex : Math.max(0, n - 1));
+
+  const items = pickedLocations.map(p => ({
+    latlng: p.latlng,
+    jibunFull: p.jibunFull,
+    roadFull: p.roadFull,
+    market: p.market
+  }));
+
+  // 단건일 때는 인자로 받은 값을 우선 사용 (직후 push된 항목)
+  if (items.length === 0 && latlng) {
+    items.push({ latlng, jibunFull, roadFull, market });
   }
 
-  list.innerHTML = `
-    ${zoneNotice}
-    <div class="detail-block">
-      <div class="detail-row"><span class="d-label">지번주소</span><span class="d-value">${jibunFull || "확인되지 않음"}</span></div>
-      <div class="detail-row"><span class="d-label">도로명주소</span><span class="d-value">${roadFull || "확인되지 않음"}</span></div>
-      <div class="detail-row"><span class="d-label">위도</span><span class="d-value">${latlng.getLat().toFixed(6)}</span></div>
-      <div class="detail-row"><span class="d-label">경도</span><span class="d-value">${latlng.getLng().toFixed(6)}</span></div>
-    </div>
-  `;
-
-  // 구역명 클릭 → 지도 이동 + 구역 강조
-  list.querySelectorAll(".zone-link").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const m = el.getAttribute("data-market");
-      if (m) focusMarketZone(m);
-    });
+  renderUnifiedDetailPanel({
+    titleBase: "선택한 위치 상세정보",
+    items: items.length ? items : [{ latlng, jibunFull, roadFull, market }],
+    index: idx,
+    onPrev: goPickedPrev,
+    onNext: goPickedNext
   });
 }
 
@@ -1269,67 +1350,62 @@ function renderResultList(parcels) {
   const list = document.getElementById("resultList");
   const title = document.getElementById("resultTitle");
   const badge = document.getElementById("alleyCountBadge");
-  badge.style.display = "";
 
   if (!parcels.length) {
+    searchDetailItems = [];
+    searchDetailIndex = 0;
+    badge.style.display = "";
     list.innerHTML = `<div class="result-empty">일치하는 결과가 없습니다. 시장명(예: 보람동 호려울) 또는 지번 주소로 검색해보세요.</div>`;
     title.textContent = "검색 결과";
     badge.textContent = "골목형상점가 0곳";
     return;
   }
 
-  title.textContent = `검색 결과 (${parcels.length}건)`;
-
-  const matchedMarkets = [...new Set(parcels.map(p => p.market))];
-  const alleyCount = matchedMarkets.filter(m => getMarketType(m) === "골목형상점가").length;
-  badge.textContent = `골목형상점가 ${alleyCount}곳`;
-
-  // 어느 구역(상점가)에 포함되는지 안내 (우클릭 상세와 동일한 강조 스타일)
-  // 구역명은 다음 줄, 밑줄 + 클릭 시 해당 구역으로 이동·강조
-  const uniqueMarkets = [];
-  const seen = new Set();
-  parcels.forEach(p => {
-    if (p.market && !seen.has(p.market)) {
-      seen.add(p.market);
-      uniqueMarkets.push(p.market);
-    }
+  // 우클릭 상세와 완전히 동일한 형식: 구역 안내 + 지번/도로명/위도/경도
+  searchDetailItems = parcels.map(p => {
+    const center = getParcelCenter(p);
+    return {
+      latlng: center,
+      jibunFull: p.address || "",
+      roadFull: p.roadAddress || "",
+      parcelAddress: formatParcelAddress(p),
+      market: p.market || null,
+      parcelId: p.id
+    };
   });
-  const zoneNotice = uniqueMarkets.length
-    ? `<div class="result-zone-notice result-zone-notice--emphasis">
-        <div class="zone-notice-label">📍 검색 주소가 포함된 구역:</div>
-        <div class="zone-notice-name">
-          ${uniqueMarkets.map(m =>
-            `<a href="#" class="zone-link" data-market="${m}">${getMarketDisplayName(m)}</a>`
-          ).join('<span class="zone-sep">, </span>')}
-        </div>
-      </div>`
-    : "";
+  searchDetailIndex = 0;
+  showSearchDetailAt(0, false);
+}
 
-  list.innerHTML = zoneNotice + parcels.map(p => {
-    const type = getMarketType(p.market) || "";
-    return `
-    <div class="result-item" data-market="${p.market}" data-id="${p.id}" data-type="${type}">
-      <span class="r-market">${getMarketDisplayName(p.market)}</span>
-      <span class="r-addr">${formatParcelAddress(p)}</span>
-    </div>`;
-  }).join("");
+function showSearchDetailAt(index, panMap) {
+  if (!searchDetailItems.length) return;
+  const i = Math.max(0, Math.min(index, searchDetailItems.length - 1));
+  searchDetailIndex = i;
+  const item = searchDetailItems[i];
 
-  list.querySelectorAll(".result-item").forEach(el => {
-    el.addEventListener("click", () => {
-      const id = Number(el.dataset.id);
-      const parcel = MAP_DATA.parcels.find(p => p.id === id);
-      if (parcel) focusOnParcels([parcel]);
-    });
+  renderUnifiedDetailPanel({
+    titleBase: "검색 결과",
+    items: searchDetailItems,
+    index: i,
+    onPrev: goSearchPrev,
+    onNext: goSearchNext
   });
 
-  list.querySelectorAll(".zone-link").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const m = el.getAttribute("data-market");
-      if (m) focusMarketZone(m);
-    });
-  });
+  if (panMap && item.latlng && map) {
+    map.panTo(item.latlng);
+  }
+}
+
+function goSearchPrev() {
+  if (searchDetailItems.length <= 1) return;
+  const next = (searchDetailIndex - 1 + searchDetailItems.length) % searchDetailItems.length;
+  showSearchDetailAt(next, true);
+}
+
+function goSearchNext() {
+  if (searchDetailItems.length <= 1) return;
+  const next = (searchDetailIndex + 1) % searchDetailItems.length;
+  showSearchDetailAt(next, true);
 }
 
 // 초기 로딩 시: 결과 패널에 전체 골목형상점가 목록을 보여줌 (지도에는 이미 구역 배경이 항상 표시되어 있음)
@@ -1514,6 +1590,8 @@ function resetToInitialView() {
   document.getElementById("searchInput").value = "";
   clearHighlights();
   clearPickedLocation();
+  searchDetailItems = [];
+  searchDetailIndex = 0;
   closeChecklist();
   selectedMarket = null;
 
