@@ -1140,18 +1140,19 @@ function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress,
   title.textContent = n > 1 ? `선택한 위치 상세정보 (${n}개)` : "선택한 위치 상세정보";
   badge.style.display = "none";
 
-  const guideText = market
-    ? `${getMarketDisplayName(market)}에 속해있는 장소입니다.`
-    : "등록된 상점가 구역에 포함되지 않는 위치입니다.";
+  // 구역 안내는 검색 결과와 동일한 스타일로 강조 표시 (공무원 업무상 가장 중요)
+  const zoneName = market ? getMarketDisplayName(market) : null;
+  const zoneNotice = zoneName
+    ? `<div class="result-zone-notice result-zone-notice--emphasis">📍 검색 주소가 포함된 구역: <strong>${zoneName}</strong></div>`
+    : `<div class="result-zone-notice result-zone-notice--out">📍 검색 주소가 포함된 구역: <strong>해당 없음</strong> <span class="zone-out-sub">(등록된 상점가 구역 밖)</span></div>`;
 
   list.innerHTML = `
+    ${zoneNotice}
     <div class="detail-block">
-      <div class="detail-row"><span class="d-label">위치</span><span class="d-value">${parcelAddress || jibunFull || "확인되지 않음"}</span></div>
       <div class="detail-row"><span class="d-label">지번주소</span><span class="d-value">${jibunFull || "확인되지 않음"}</span></div>
       <div class="detail-row"><span class="d-label">도로명주소</span><span class="d-value">${roadFull || "확인되지 않음"}</span></div>
       <div class="detail-row"><span class="d-label">위도</span><span class="d-value">${latlng.getLat().toFixed(6)}</span></div>
       <div class="detail-row"><span class="d-label">경도</span><span class="d-value">${latlng.getLng().toFixed(6)}</span></div>
-      <div class="detail-row"><span class="d-label">안내</span><span class="d-value">${guideText}</span></div>
     </div>
   `;
 }
@@ -1178,10 +1179,10 @@ function renderResultList(parcels) {
   const alleyCount = matchedMarkets.filter(m => getMarketType(m) === "골목형상점가").length;
   badge.textContent = `골목형상점가 ${alleyCount}곳`;
 
-  // 어느 구역(상점가)에 포함되는지 안내
+  // 어느 구역(상점가)에 포함되는지 안내 (우클릭 상세와 동일한 강조 스타일)
   const zoneNames = [...new Set(parcels.map(p => getMarketDisplayName(p.market)))];
   const zoneNotice = zoneNames.length
-    ? `<div class="result-zone-notice">📍 검색 주소가 포함된 구역: <strong>${zoneNames.join(", ")}</strong></div>`
+    ? `<div class="result-zone-notice result-zone-notice--emphasis">📍 검색 주소가 포함된 구역: <strong>${zoneNames.join(", ")}</strong></div>`
     : "";
 
   list.innerHTML = zoneNotice + parcels.map(p => {
