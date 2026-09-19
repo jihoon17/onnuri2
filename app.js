@@ -33,6 +33,7 @@ let marketLabelOverlays = [];   // { marketName, marker, overlay, content } (항
 let highlightOverlays = [];     // { polygon, marker } (검색 시에만 갱신/삭제되는 강조 표시)
 let pickedLocations = []; // [{ id, marker, overlay, latlng, jibunFull, roadFull, areaKey }] (우클릭/꾹 누르기 핀, 여러 개 가능)
 let pickedLocationIdSeq = 0;
+let pickedViewIndex = -1; // 현재 상세정보에 표시 중인 pickedLocations 인덱스
 let pickedAreaPolygons = {}; // areaKey -> { polygon, hitCoords, refCount } (같은 구역 보라색은 하나만)
 let selectedMarket = null;      // 라벨 클릭으로 선택된 상점가 (null이면 선택 없음)
 let checklistMarket = null;     // 체크리스트가 열려있는 상점가 (null이면 닫힘)
@@ -897,6 +898,7 @@ function clearPickedLocation() {
   });
   pickedAreaPolygons = {};
   pickedLocations = [];
+  pickedViewIndex = -1;
 }
 
 function removePickedLocationById(id) {
@@ -910,10 +912,64 @@ function removePickedLocationById(id) {
   pickedLocations.splice(idx, 1);
 
   if (pickedLocations.length === 0) {
+    pickedViewIndex = -1;
     renderInitialOverview();
   } else {
-    const last = pickedLocations[pickedLocations.length - 1];
-    renderPickedLocationDetails(last.latlng, last.jibunFull, last.roadFull, last.parcelAddress, pickedLocations.length, last.market);
+    // 삭제된 항목이 현재 보던 것보다 앞이면 인덱스 보정, 아니면 같은 자리(또는 마지막) 유지
+    if (pickedViewIndex > idx) {
+      pickedViewIndex -= 1;
+    } else if (pickedViewIndex >= pickedLocations.length) {
+      pickedViewIndex = pickedLocations.length - 1;
+    } else if (pickedViewIndex < 0) {
+      pickedViewIndex = pickedLocations.length - 1;
+    }
+    showPickedLocationAt(pickedViewIndex, false);
+  }
+}
+
+/** 우클릭 핀 목록에서 index번째 상세정보를 표시하고, panMap이면 지도 중심도 이동 */
+function showPickedLocationAt(index, panMap) {
+  if (!pickedLocations.length) return;
+  const i = Math.max(0, Math.min(index, pickedLocations.length - 1));
+  pickedViewIndex = i;
+  const item = pickedLocations[i];
+  renderPickedLocationDetails(
+    item.latlng,
+    item.jibunFull,
+    item.roadFull,
+    item.parcelAddress,
+    pickedLocations.length,
+    item.market,
+    i
+  );
+  if (panMap && item.latlng && map) {
+    map.panTo(item.latlng);
+  }
+}
+
+function goPickedPrev() {
+  if (pickedLocations.length <= 1) return;
+  const next = (pickedViewIndex - 1 + pickedLocations.length) % pickedLocations.length;
+  showPickedLocationAt(next, true);
+}
+
+function goPickedNext() {
+  if (pickedLocations.length <= 1) return;
+  const next = (pickedViewIndex + 1) % pickedLocations.length;
+  showPickedLocationAt(next, true);
+}
+
+/** 구역명 클릭 시: 해당 상점가 구역으로 이동 + 강조 */
+function focusMarketZone(marketName) {
+  if (!marketName) return;
+  clearHighlights();
+  closeChecklist();
+  selectedMarket = marketName;
+  applyZoneColorState();
+  openChecklist(marketName);
+  const zones = getZonesForMarket(marketName);
+  if (zones.length) {
+    fitBoundsToPaths(zones.map(z => toLatLngPath(z.coords)));
   }
 }
 
@@ -1128,23 +1184,62 @@ function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parce
     parcelKey: key
   });
 
-  renderPickedLocationDetails(pos, jibunFull || "", roadFull || "", parcelAddress || "", pickedLocations.length, market || null);
+  // 새로 찍은 핀을 현재 보기로 설정
+  pickedViewIndex = pickedLocations.length - 1;
+  showPickedLocationAt(pickedViewIndex, false);
 }
 
-function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress, count, market) {
+function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress, count, market, viewIndex) {
   const title = document.getElementById("resultTitle");
   const badge = document.getElementById("alleyCountBadge");
   const list = document.getElementById("resultList");
 
   const n = count != null ? count : pickedLocations.length;
-  title.textContent = n > 1 ? `선택한 위치 상세정보 (${n}개)` : "선택한 위치 상세정보";
-  badge.style.display = "none";
+  const idx = viewIndex != null ? viewIndex : (pickedViewIndex >= 0 ? pickedViewIndex : n - 1);
+  const displayNum = n > 0 ? (idx + 1) : 0;
+
+  // 제목 + 여러 개일 때 좌/우 화살표 네비게이션
+  if (n > 1) {
+    title.innerHTML = `
+      <span class="picked-title-text">선택한 위치 상세정보 (${displayNum}/${n})</span>
+      <span class="picked-nav" role="group" aria-label="선택한 위치 이동">
+        <button type="button" class="picked-nav-btn" id="pickedNavPrev" title="이전 위치">◀</button>
+        <button type="button" class="picked-nav-btn" id="pickedNavNext" title="다음 위치">▶</button>
+      </span>
+    `;
+    badge.style.display = "none";
+    // 이벤트는 title 내부 버튼에 바로 연결
+    const prevBtn = document.getElementById("pickedNavPrev");
+    const nextBtn = document.getElementById("pickedNavNext");
+    if (prevBtn) prevBtn.onclick = (e) => { e.stopPropagation(); goPickedPrev(); };
+    if (nextBtn) nextBtn.onclick = (e) => { e.stopPropagation(); goPickedNext(); };
+  } else {
+    title.textContent = "선택한 위치 상세정보";
+    badge.style.display = "none";
+  }
 
   // 구역 안내는 검색 결과와 동일한 스타일로 강조 표시 (공무원 업무상 가장 중요)
+  // 구역명은 다음 줄에 두고, 밑줄 + 클릭 시 해당 구역으로 이동·강조
   const zoneName = market ? getMarketDisplayName(market) : null;
-  const zoneNotice = zoneName
-    ? `<div class="result-zone-notice result-zone-notice--emphasis">📍 검색 주소가 포함된 구역: <strong>${zoneName}</strong></div>`
-    : `<div class="result-zone-notice result-zone-notice--out">📍 검색 주소가 포함된 구역: <strong>해당 없음</strong> <span class="zone-out-sub">(등록된 상점가 구역 밖)</span></div>`;
+  let zoneNotice;
+  if (zoneName && market) {
+    zoneNotice = `
+      <div class="result-zone-notice result-zone-notice--emphasis">
+        <div class="zone-notice-label">📍 검색 주소가 포함된 구역:</div>
+        <div class="zone-notice-name">
+          <a href="#" class="zone-link" data-market="${market}">${zoneName}</a>
+        </div>
+      </div>`;
+  } else {
+    zoneNotice = `
+      <div class="result-zone-notice result-zone-notice--out">
+        <div class="zone-notice-label">📍 검색 주소가 포함된 구역:</div>
+        <div class="zone-notice-name">
+          <strong>해당 없음</strong>
+          <span class="zone-out-sub">(등록된 상점가 구역 밖)</span>
+        </div>
+      </div>`;
+  }
 
   list.innerHTML = `
     ${zoneNotice}
@@ -1155,6 +1250,16 @@ function renderPickedLocationDetails(latlng, jibunFull, roadFull, parcelAddress,
       <div class="detail-row"><span class="d-label">경도</span><span class="d-value">${latlng.getLng().toFixed(6)}</span></div>
     </div>
   `;
+
+  // 구역명 클릭 → 지도 이동 + 구역 강조
+  list.querySelectorAll(".zone-link").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const m = el.getAttribute("data-market");
+      if (m) focusMarketZone(m);
+    });
+  });
 }
 
 /* =========================================================
@@ -1180,9 +1285,24 @@ function renderResultList(parcels) {
   badge.textContent = `골목형상점가 ${alleyCount}곳`;
 
   // 어느 구역(상점가)에 포함되는지 안내 (우클릭 상세와 동일한 강조 스타일)
-  const zoneNames = [...new Set(parcels.map(p => getMarketDisplayName(p.market)))];
-  const zoneNotice = zoneNames.length
-    ? `<div class="result-zone-notice result-zone-notice--emphasis">📍 검색 주소가 포함된 구역: <strong>${zoneNames.join(", ")}</strong></div>`
+  // 구역명은 다음 줄, 밑줄 + 클릭 시 해당 구역으로 이동·강조
+  const uniqueMarkets = [];
+  const seen = new Set();
+  parcels.forEach(p => {
+    if (p.market && !seen.has(p.market)) {
+      seen.add(p.market);
+      uniqueMarkets.push(p.market);
+    }
+  });
+  const zoneNotice = uniqueMarkets.length
+    ? `<div class="result-zone-notice result-zone-notice--emphasis">
+        <div class="zone-notice-label">📍 검색 주소가 포함된 구역:</div>
+        <div class="zone-notice-name">
+          ${uniqueMarkets.map(m =>
+            `<a href="#" class="zone-link" data-market="${m}">${getMarketDisplayName(m)}</a>`
+          ).join('<span class="zone-sep">, </span>')}
+        </div>
+      </div>`
     : "";
 
   list.innerHTML = zoneNotice + parcels.map(p => {
@@ -1199,6 +1319,15 @@ function renderResultList(parcels) {
       const id = Number(el.dataset.id);
       const parcel = MAP_DATA.parcels.find(p => p.id === id);
       if (parcel) focusOnParcels([parcel]);
+    });
+  });
+
+  list.querySelectorAll(".zone-link").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const m = el.getAttribute("data-market");
+      if (m) focusMarketZone(m);
     });
   });
 }

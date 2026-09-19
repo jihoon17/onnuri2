@@ -146,12 +146,14 @@ html, body {
 .result-header {
   background: var(--primary);
   color: var(--white);
-  padding: 12px 16px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   font-weight: 700;
   font-size: 15px;
+  flex-wrap: wrap;
 }
 .result-count-badge {
   background: rgba(255,255,255,0.18);
@@ -218,13 +220,13 @@ html, body {
   font-weight: 800;
   font-size: 15px;
 }
-/* 구역 안내 강조 (검색·우클릭 공통) */
+/* 구역 안내 강조 (검색·우클릭 공통) — 라벨 / 구역명 두 줄 배치 */
 .result-zone-notice--emphasis {
   background: #d4edda;
   border-bottom: 2px solid #28a745;
   color: #155724;
   font-size: 14.5px;
-  padding: 14px 16px;
+  padding: 12px 16px 14px;
 }
 .result-zone-notice--emphasis strong {
   color: #0b3d1a;
@@ -237,7 +239,7 @@ html, body {
   border-bottom: 2px solid #dc3545;
   color: #721c24;
   font-size: 14.5px;
-  padding: 14px 16px;
+  padding: 12px 16px 14px;
 }
 .result-zone-notice--out strong {
   color: #491217;
@@ -248,6 +250,81 @@ html, body {
   font-size: 13px;
   color: #9a4a52;
   margin-left: 4px;
+}
+.zone-notice-label {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.9;
+  margin-bottom: 4px;
+}
+.zone-notice-name {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.35;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+/* 구역명 링크: 밑줄 + 클릭 시 구역 강조/이동 */
+.zone-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 2px;
+  cursor: pointer;
+  font-weight: 800;
+}
+.zone-link:hover {
+  color: #0a5c2a;
+  text-decoration-thickness: 2.5px;
+}
+.result-zone-notice--out .zone-link {
+  color: #491217;
+}
+.zone-sep {
+  font-weight: 600;
+  color: inherit;
+  opacity: 0.7;
+}
+
+/* 우클릭 핀 여러 개일 때 제목 옆 좌/우 화살표 */
+#resultTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.picked-title-text {
+  min-width: 0;
+}
+.picked-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.picked-nav-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,0.55);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.picked-nav-btn:hover {
+  background: rgba(255,255,255,0.32);
+  border-color: rgba(255,255,255,0.85);
+}
+.picked-nav-btn:active {
+  background: rgba(255,255,255,0.45);
 }
 
 /* 지도 영역 — 세로 폭을 줄여 지도 표시 기준이 스크롤 없이 한눈에 보이도록 */
