@@ -25,8 +25,13 @@ function getTypeColor(type) {
 }
 
 /* -------- 전역 상태 -------- */
-let map, geocoder;
+let map, geocoder, placesService;
 let MAP_DATA = { markets: [], parcels: [], zones: [] };
+
+// 세종시 검색 범위 (Places 키워드 검색 시 사용)
+const SEJONG_CENTER_LAT = 36.479934;
+const SEJONG_CENTER_LNG = 127.286740;
+const SEJONG_SEARCH_RADIUS_M = 25000; // 약 25km — 세종시 전역 커버
 
 let zoneOverlaysByMarket = {};  // marketName -> [kakao.maps.Polygon, ...] (항상 유지되는 구역 배경)
 let marketLabelOverlays = [];   // { marketName, marker, overlay, content } (항상 유지되는 라벨)
@@ -179,6 +184,7 @@ function initMap() {
     disableDoubleClickZoom: true
   });
   geocoder = new kakao.maps.services.Geocoder();
+  placesService = new kakao.maps.services.Places();
 
   // 지도 / 스카이뷰 전환 버튼 (왼쪽 상단)
   const mapTypeControl = new kakao.maps.MapTypeControl();
@@ -370,12 +376,16 @@ function buildZoneNoticeHtml(marketNames) {
     </div>`;
 }
 
-/** 검색·우클릭 공통: 상세 정보 행 (지번/도로명/위도/경도) */
-function buildDetailRowsHtml(latlng, jibunFull, roadFull) {
+/** 검색·우클릭 공통: 상세 정보 행 (상호명 선택 / 지번/도로명/위도/경도) */
+function buildDetailRowsHtml(latlng, jibunFull, roadFull, placeName) {
   const lat = latlng && typeof latlng.getLat === "function" ? latlng.getLat().toFixed(6) : "확인되지 않음";
   const lng = latlng && typeof latlng.getLng === "function" ? latlng.getLng().toFixed(6) : "확인되지 않음";
+  const placeRow = placeName
+    ? `<div class="detail-row"><span class="d-label">상호명</span><span class="d-value">${placeName}</span></div>`
+    : "";
   return `
     <div class="detail-block">
+      ${placeRow}
       <div class="detail-row"><span class="d-label">지번주소</span><span class="d-value">${jibunFull || "확인되지 않음"}</span></div>
       <div class="detail-row"><span class="d-label">도로명주소</span><span class="d-value">${roadFull || "확인되지 않음"}</span></div>
       <div class="detail-row"><span class="d-label">위도</span><span class="d-value">${lat}</span></div>
@@ -1310,7 +1320,7 @@ function renderUnifiedDetailPanel({ titleBase, items, index, onPrev, onNext }) {
   }
 
   const zoneNotice = buildZoneNoticeHtml(item.market ? [item.market] : []);
-  list.innerHTML = zoneNotice + buildDetailRowsHtml(item.latlng, item.jibunFull, item.roadFull);
+  list.innerHTML = zoneNotice + buildDetailRowsHtml(item.latlng, item.jibunFull, item.roadFull, item.placeName);
   bindZoneLinkClicks(list);
 }
 
@@ -1355,7 +1365,7 @@ function renderResultList(parcels) {
     searchDetailItems = [];
     searchDetailIndex = 0;
     badge.style.display = "";
-    list.innerHTML = `<div class="result-empty">일치하는 결과가 없습니다. 시장명(예: 보람동 호려울) 또는 지번 주소로 검색해보세요.</div>`;
+    list.innerHTML = `<div class="result-empty">일치하는 결과가 없습니다. 시장명, 지번 주소, 또는 상호명(예: 진성 아구찜)으로 검색해보세요.</div>`;
     title.textContent = "검색 결과";
     badge.textContent = "골목형상점가 0곳";
     return;
@@ -1499,8 +1509,140 @@ function maybeRefreshOverviewPanel() {
 /* =========================================================
    8. 검색 처리
    ========================================================= */
+
+/** 카카오 장소 결과가 세종시인지 판별 */
+function isSejongPlace(place) {
+  if (!place) return false;
+  const parts = [
+    place.address_name || "",
+    place.road_address_name || "",
+    place.place_name || ""
+  ].join(" ");
+  if (/세종/.test(parts)) return true;
+  // 주소에 시·도가 없어도 좌표가 세종 중심 반경 안이면 허용
+  const lat = parseFloat(place.y);
+  const lng = parseFloat(place.x);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return distanceMeters(SEJONG_CENTER_LAT, SEJONG_CENTER_LNG, lat, lng) <= SEJONG_SEARCH_RADIUS_M;
+}
+
+/**
+ * 세종시 한정 상호(장소) 키워드 검색
+ * - 사용자는 「진성 아구찜」만 입력해도 됨 (세종 자동 한정)
+ * - 콜백: places 배열 (세종 필터 후) 또는 빈 배열
+ */
+function searchPlacesInSejong(query, callback) {
+  if (!placesService) {
+    callback([]);
+    return;
+  }
+  const q = (query || "").trim();
+  if (!q) {
+    callback([]);
+    return;
+  }
+
+  // 이미 「세종」이 없으면 검색어에 붙여 전국 동명이점 비중을 줄임
+  const keyword = /세종/.test(q) ? q : `세종 ${q}`;
+  const center = new kakao.maps.LatLng(SEJONG_CENTER_LAT, SEJONG_CENTER_LNG);
+
+  placesService.keywordSearch(
+    keyword,
+    (data, status) => {
+      if (status !== kakao.maps.services.Status.OK || !data || !data.length) {
+        callback([]);
+        return;
+      }
+      const filtered = data.filter(isSejongPlace);
+      callback(filtered);
+    },
+    {
+      location: center,
+      radius: SEJONG_SEARCH_RADIUS_M,
+      size: 15
+    }
+  );
+}
+
+/** 장소 검색 결과를 우클릭/검색과 동일한 상세 패널로 표시 */
+function renderPlaceSearchResults(places, originalQuery) {
+  if (!places.length) return;
+
+  clearHighlights();
+  closeChecklist();
+  selectedMarket = null;
+  applyZoneColorState();
+  // 이전 우클릭 핀은 유지하지 않고 장소 검색 결과로 교체 표시
+  clearPickedLocation();
+
+  const detailItems = places.map((place) => {
+    const lat = parseFloat(place.y);
+    const lng = parseFloat(place.x);
+    const coords = new kakao.maps.LatLng(lat, lng);
+    const parcel = findParcelAt(coords);
+    const zone = findZoneAt(coords);
+    const market = (parcel && parcel.market) || (zone && zone.market) || null;
+    return {
+      latlng: coords,
+      jibunFull: place.address_name || "",
+      roadFull: place.road_address_name || "",
+      parcelAddress: place.address_name || place.place_name || originalQuery,
+      market,
+      placeName: place.place_name || originalQuery,
+      parcelId: parcel ? parcel.id : null
+    };
+  });
+
+  // 등록 필지와 매칭되면 빨간 강조, 아니면 첫 장소에 핀
+  const parcelsToFocus = detailItems
+    .filter((it) => it.parcelId != null)
+    .map((it) => MAP_DATA.parcels.find((p) => p.id === it.parcelId))
+    .filter(Boolean);
+
+  if (parcelsToFocus.length) {
+    focusOnParcels(parcelsToFocus);
+  } else {
+    const first = detailItems[0];
+    if (first && first.latlng) {
+      map.setCenter(first.latlng);
+      map.setLevel(3);
+      // 핀만 표시 (상세 패널은 아래에서 장소 검색 형식으로 그림)
+      addPickedPin({
+        center: first.latlng,
+        hitCoords: null,
+        labelText: first.placeName || originalQuery,
+        jibunFull: first.jibunFull,
+        roadFull: first.roadFull,
+        parcelAddress: first.parcelAddress,
+        market: first.market,
+        key: `place|${first.latlng.getLat().toFixed(6)}|${first.latlng.getLng().toFixed(6)}`,
+        showPurple: false
+      });
+    }
+  }
+
+  // addPickedPin / focusOnParcels 이후에도 장소 검색 상세가 유지되도록 마지막에 설정
+  searchDetailItems = detailItems;
+  searchDetailIndex = 0;
+  showSearchDetailAt(0, false);
+}
+
+function showSearchNoResult(message) {
+  searchDetailItems = [];
+  searchDetailIndex = 0;
+  const list = document.getElementById("resultList");
+  list.innerHTML = `<div class="result-empty">${message || "검색 결과가 없습니다. 시장명, 주소, 또는 상호명을 입력해주세요."}</div>`;
+  document.getElementById("resultTitle").textContent = "검색 결과";
+  const badge = document.getElementById("alleyCountBadge");
+  badge.style.display = "";
+  badge.textContent = "골목형상점가 0곳";
+}
+
 function geocodeFallbackSearch(query) {
-  if (!geocoder) return;
+  if (!geocoder) {
+    showSearchNoResult();
+    return;
+  }
   geocoder.addressSearch(query, (result, status) => {
     if (status === kakao.maps.services.Status.OK && result[0]) {
       const coords = new kakao.maps.LatLng(result[0].y, result[0].x);
@@ -1553,11 +1695,7 @@ function geocodeFallbackSearch(query) {
         showPurple: false
       });
     } else {
-      const list = document.getElementById("resultList");
-      list.innerHTML = `<div class="result-empty">검색 결과가 없습니다. 시장명 또는 정확한 주소를 입력해주세요.</div>`;
-      document.getElementById("resultTitle").textContent = "검색 결과";
-      document.getElementById("alleyCountBadge").style.display = "";
-      document.getElementById("alleyCountBadge").textContent = "골목형상점가 0곳";
+      showSearchNoResult("검색 결과가 없습니다. 시장명, 주소, 또는 상호명을 입력해주세요.");
     }
   });
 }
@@ -1566,18 +1704,30 @@ function handleSearch() {
   const query = document.getElementById("searchInput").value;
   if (!query.trim()) return;
 
-  // 주소처럼 보이면 정확한 주소 매칭 우선, 아니면 시장명 포함 검색
   const q = query.trim();
+  // 주소처럼 보이면 필지·주소 매칭 우선, 아니면 시장명·상호명 검색
   const looksLikeAddress = /\d/.test(q) || q.includes("-") || q.includes("로") || q.includes("길");
   const matched = looksLikeAddress ? searchParcelsExact(q) : searchParcels(q);
 
   if (matched.length) {
     renderResultList(matched);
     focusOnParcels(matched);
-  } else if (map) {
-    // 등록 데이터에 없으면 지오코딩 후 구역 외 안내 + 핀 표시
-    geocodeFallbackSearch(query);
+    return;
   }
+
+  if (!map) return;
+
+  // 1) 상호명(장소) 검색 — 세종시 한정 (「세종」은 자동 처리)
+  // 2) 없으면 주소 지오코딩
+  searchPlacesInSejong(q, (places) => {
+    if (places.length) {
+      renderPlaceSearchResults(places, q);
+      return;
+    }
+    // 장소가 없으면 주소 검색으로 한 번 더 시도
+    const geoQuery = /세종/.test(q) ? q : `세종 ${q}`;
+    geocodeFallbackSearch(geoQuery);
+  });
 }
 
 document.getElementById("searchBtn").addEventListener("click", handleSearch);
