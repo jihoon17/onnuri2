@@ -33,19 +33,17 @@
       <div class="result-header">
         <span id="resultTitle">검색 결과</span>
         <span class="result-count-badge" id="alleyCountBadge">골목형상점가 0곳</span>
-        <!-- 가로(PC) 레이아웃용: 오른쪽에 접기 -->
-        <button type="button" class="panel-toggle panel-toggle--side" id="panelToggleSide" aria-expanded="true" title="목록 접기/펼치기">
+        <!-- 가로(PC) 레이아웃용: 오른쪽 화살표만 -->
+        <button type="button" class="panel-toggle panel-toggle--side" id="panelToggleSide" aria-expanded="true" title="목록 접기/펼치기" aria-label="목록 접기">
           <span class="panel-toggle-icon" aria-hidden="true">◀</span>
-          <span class="panel-toggle-text">접기</span>
         </button>
       </div>
       <div class="result-list" id="resultList">
         <div class="result-empty">골목형상점가 데이터를 불러오는 중입니다…</div>
       </div>
-      <!-- 세로(모바일) 레이아웃용: 맨 아래 접기 -->
-      <button type="button" class="panel-toggle panel-toggle--bottom" id="panelToggleBottom" aria-expanded="true" title="목록 접기/펼치기">
+      <!-- 세로(모바일) 레이아웃용: 아래 화살표만 -->
+      <button type="button" class="panel-toggle panel-toggle--bottom" id="panelToggleBottom" aria-expanded="true" title="목록 접기/펼치기" aria-label="목록 접기">
         <span class="panel-toggle-icon" aria-hidden="true">▲</span>
-        <span class="panel-toggle-text">접기</span>
       </button>
     </div>
   </div>
@@ -54,6 +52,12 @@
   <div class="map-panel">
     <div class="map-wrap">
       <div id="map"></div>
+      <!-- 지도 이동 조이스틱 (터치·마우스·키보드 화살표) -->
+      <div class="map-joystick" id="mapJoystick" aria-label="지도 이동 조이스틱">
+        <div class="map-joystick-base">
+          <div class="map-joystick-knob" id="mapJoystickKnob"></div>
+        </div>
+      </div>
     </div>
 
     <!-- 지도를 볼 기준 (유형별 클릭 필터) -->

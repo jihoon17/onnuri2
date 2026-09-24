@@ -57,34 +57,44 @@ html, body {
   flex: 1 1 auto;
 }
 
-/* 접기 버튼 공통 */
+/* 접기 버튼 — 글자 없이 화살표만 (네이버맵 스타일 원형) */
 .panel-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  border: none;
-  background: var(--primary-light);
-  color: var(--primary-dark);
-  font-size: 13px;
-  font-weight: 700;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: #333;
   cursor: pointer;
-  padding: 8px 12px;
-  transition: background 0.15s ease, color 0.15s ease;
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+  flex-shrink: 0;
 }
 .panel-toggle:hover {
-  background: #d9e6f2;
+  background: #f5f7fa;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.16);
+}
+.panel-toggle:active {
+  background: #eef2f6;
 }
 .panel-toggle-icon {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
+  font-weight: 700;
+  color: #444;
 }
 
-/* 모바일: 맨 아래 접기 / PC용 사이드 버튼은 숨김 */
+/* 모바일: 목록 아래 가운데 원형 화살표 */
 .panel-toggle--bottom {
-  width: 100%;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  width: 40px;
+  height: 40px;
+  margin: 6px auto 8px;
+  border: 1px solid var(--border);
+  background: #fff;
 }
 .panel-toggle--side {
   display: none;
@@ -383,6 +393,52 @@ html, body {
   min-height: 0; /* 한 화면 안에 맞춤 (스크롤 방지) */
   /* 브라우저가 터치를 가로채지 않고 카카오맵이 드래그·핀치줌 처리 */
   touch-action: none;
+}
+
+/* 지도 이동 조이스틱 (우측 하단, 지도/스카이뷰 버튼과 비슷한 크기) */
+.map-joystick {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 30;
+  width: 72px;
+  height: 72px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.map-joystick-base {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.map-joystick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 32px;
+  height: 32px;
+  margin-left: -16px;
+  margin-top: -16px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #5a8ec4 0%, #3b6ea5 100%);
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  transition: box-shadow 0.12s ease;
+}
+.map-joystick.is-active .map-joystick-knob {
+  box-shadow: 0 3px 10px rgba(59, 110, 165, 0.45);
+}
+.map-joystick.is-active .map-joystick-base {
+  background: rgba(255, 255, 255, 0.98);
 }
 #map {
   width: 100%;
@@ -716,25 +772,31 @@ html, body {
     flex: 1;
   }
 
-  /* PC: 아래 접기 숨기고 오른쪽 접기 표시 */
+  /* PC: 아래 접기 숨기고 오른쪽 원형 화살표만 */
   .panel-toggle--bottom {
     display: none;
   }
   .panel-toggle--side {
     display: inline-flex;
     margin-left: auto;
-    padding: 4px 10px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.35);
-    background: rgba(255,255,255,0.15);
-    color: #fff;
-    font-size: 12px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.45);
+    background: rgba(255,255,255,0.95);
+    color: #333;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  }
+  .panel-toggle--side .panel-toggle-icon {
+    color: #333;
+    font-size: 13px;
   }
   .panel-toggle--side:hover {
-    background: rgba(255,255,255,0.28);
+    background: #fff;
   }
 
-  /* 접힌 상태: 사이드 패널을 얇게 */
+  /* 접힌 상태: 사이드 패널을 얇게 + 화살표만 */
   .side-panel.is-collapsed {
     flex: 0 0 44px;
     max-width: 44px;
@@ -755,14 +817,9 @@ html, body {
   }
   .side-panel.is-collapsed .panel-toggle--side {
     display: inline-flex;
-    flex-direction: column;
-    writing-mode: vertical-rl;
     margin: 0;
-    padding: 12px 6px;
-    gap: 8px;
-  }
-  .side-panel.is-collapsed .panel-toggle--side .panel-toggle-icon {
-    writing-mode: horizontal-tb;
+    width: 36px;
+    height: 36px;
   }
 
   .map-panel {

@@ -188,9 +188,15 @@ function initMap() {
     level: 4,
     disableDoubleClickZoom: true
   });
-  // 패드/폰: 한 손가락 드래그 이동, 두 손가락 핀치 줌 (네이버맵과 동일 — 카카오 기본 제스처)
-  map.setDraggable(true);
-  map.setZoomable(true);
+  // PC: 카카오 기본 드래그 사용 / 터치 기기: 네이버맵식 직접 제스처(아래) 사용
+  const isTouchDevice = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+  if (isTouchDevice) {
+    // 카카오 기본 터치가 패드에서 동작하지 않는 경우가 많아 직접 제어
+    map.setDraggable(false);
+  } else {
+    map.setDraggable(true);
+  }
+  map.setZoomable(true); // +/- 버튼 줌은 유지
   geocoder = new kakao.maps.services.Geocoder();
   placesService = new kakao.maps.services.Places();
 
@@ -202,14 +208,12 @@ function initMap() {
   const zoomControl = new kakao.maps.ZoomControl();
   map.addControl(zoomControl, kakao.maps.ControlPosition.RIGHT);
 
-  // 줌 레벨 변경 시 라벨 표시/숨김 (마커는 항상 유지)
-  // 줌인/아웃 직후 라벨 터치로 체크리스트가 뜨지 않도록 시각 기록
+  // 줌 레벨 변경 시 라벨 표시/숨김
   kakao.maps.event.addListener(map, "zoom_changed", () => {
     lastZoomAt = Date.now();
     updateLabelVisibilityByZoom();
   });
 
-  // 화면 픽셀 좌표(clientX, clientY) -> 지도 위경도 변환 (PC 우클릭 / 모바일 꾹 누르기 공통 사용)
   function containerPointToLatLng(clientX, clientY) {
     const rect = container.getBoundingClientRect();
     const x = clientX - rect.left;
@@ -217,16 +221,29 @@ function initMap() {
     return map.getProjection().coordsFromContainerPoint(new kakao.maps.Point(x, y));
   }
 
-  // 우클릭/롱프레스 직후 가짜 click 무시 (ignoreClickUntil 은 전역)
+  // ---------- 제스처 상태 ----------
   let longPressTimer = null;
   let longPressStartXY = null;
-  let lastTouchAt = 0;       // 터치 직후 합성 mouse 이벤트 무시용
-  let lastPickAt = 0;        // 핀 중복 방지
+  let lastTouchAt = 0;
+  let lastPickAt = 0;
   let lastPickKey = "";
 
+  // 한 손가락 팬
+  let panActive = false;
+  let panStartTouch = null;       // {x, y}
+  let panStartCenterPt = null;    // 시작 시 지도 중심의 container point
+
+  // 두 손가락 핀치 줌
+  let pinchActive = false;
+  let pinchStartDist = 0;
+  let pinchStartLevel = 4;
+  let pinchLastLevel = 4;
+
   const LONG_PRESS_MS = 550;
-  const MOVE_CANCEL_PX = 12;
+  const MOVE_CANCEL_PX = 10;
   const PICK_DEDUP_MS = 900;
+  const MIN_LEVEL = 1;
+  const MAX_LEVEL = 14;
 
   const isInteractiveTarget = (target) => {
     if (!target || !target.closest) return false;
@@ -243,7 +260,6 @@ function initMap() {
     longPressStartXY = null;
   };
 
-  // 같은 위치 짧은 시간에 핀이 두 번 찍히지 않도록
   const safeMapPick = (latlng) => {
     if (!latlng) return;
     const key = `${latlng.getLat().toFixed(5)},${latlng.getLng().toFixed(5)}`;
@@ -255,14 +271,27 @@ function initMap() {
     handleMapPick(latlng);
   };
 
-  // 우클릭(마우스) — 터치 롱프레스 직후 브라우저 contextmenu 는 무시
+  const touchDist = (a, b) =>
+    Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+
+  const startLongPress = (clientX, clientY) => {
+    clearLongPress();
+    longPressStartXY = { x: clientX, y: clientY };
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      longPressStartXY = null;
+      if (panActive || pinchActive || multiTouchActive) return;
+      safeMapPick(containerPointToLatLng(clientX, clientY));
+    }, LONG_PRESS_MS);
+  };
+
+  // 우클릭(마우스)
   container.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     if (Date.now() - lastTouchAt < 1200) return;
     safeMapPick(containerPointToLatLng(e.clientX, e.clientY));
   });
 
-  // 일반 클릭: 핀 제거 (롱프레스/라벨 직후는 무시)
   kakao.maps.event.addListener(map, "click", (mouseEvent) => {
     if (Date.now() < ignoreClickUntil) return;
     handleMapClick(mouseEvent.latLng);
@@ -275,76 +304,162 @@ function initMap() {
     handleMapClick(containerPointToLatLng(e.clientX, e.clientY));
   });
 
-  const startLongPress = (clientX, clientY) => {
-    clearLongPress();
-    longPressStartXY = { x: clientX, y: clientY };
-    longPressTimer = setTimeout(() => {
-      longPressTimer = null;
-      longPressStartXY = null;
-      safeMapPick(containerPointToLatLng(clientX, clientY));
-    }, LONG_PRESS_MS);
-  };
-
-  const moveLongPress = (clientX, clientY) => {
-    if (!longPressStartXY) return;
-    const moved = Math.abs(clientX - longPressStartXY.x) + Math.abs(clientY - longPressStartXY.y);
-    if (moved > MOVE_CANCEL_PX) clearLongPress();
-  };
-
-  // 터치 — 라벨 위에서는 롱프레스 시작하지 않음 (강조만)
-  // 두 손가락 이상이면 핀치 줌으로 보고 롱프레스·라벨 터치 모두 무시
+  // ===== 네이버맵식 터치 제스처: 1손가락 이동 / 2손가락 핀치 줌 =====
   container.addEventListener("touchstart", (e) => {
     lastTouchAt = Date.now();
+
+    // 라벨·버튼 위에서는 지도 제스처 시작 안 함
+    if (isInteractiveTarget(e.target)) {
+      clearLongPress();
+      panActive = false;
+      pinchActive = false;
+      return;
+    }
+
     if (e.touches.length >= 2) {
+      // 핀치 시작
       multiTouchActive = true;
       lastMultiTouchAt = Date.now();
       clearLongPress();
+      panActive = false;
+      pinchActive = true;
+      pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
+      pinchStartLevel = map.getLevel();
+      pinchLastLevel = pinchStartLevel;
       return;
     }
-    if (multiTouchActive || e.touches.length !== 1) {
-      clearLongPress();
-      return;
+
+    if (e.touches.length === 1) {
+      multiTouchActive = false;
+      pinchActive = false;
+      const t = e.touches[0];
+      panActive = false; // 이동 임계값 넘기 전까지는 false
+      panStartTouch = { x: t.clientX, y: t.clientY };
+      try {
+        const center = map.getCenter();
+        const pt = map.getProjection().containerPointFromCoords(center);
+        panStartCenterPt = { x: pt.x, y: pt.y };
+      } catch (_) {
+        panStartCenterPt = null;
+      }
+      startLongPress(t.clientX, t.clientY);
     }
-    if (isInteractiveTarget(e.target)) {
-      clearLongPress();
-      return;
-    }
-    const t = e.touches[0];
-    startLongPress(t.clientX, t.clientY);
   }, { passive: true });
 
   container.addEventListener("touchmove", (e) => {
+    // ----- 두 손가락: 핀치 줌 -----
     if (e.touches.length >= 2) {
       multiTouchActive = true;
       lastMultiTouchAt = Date.now();
       clearLongPress();
+      panActive = false;
+
+      if (!pinchActive) {
+        pinchActive = true;
+        pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
+        pinchStartLevel = map.getLevel();
+        pinchLastLevel = pinchStartLevel;
+      }
+
+      e.preventDefault();
+      const dist = touchDist(e.touches[0], e.touches[1]) || pinchStartDist;
+      // 거리 비율 → 레벨 변화 (카카오: level 작을수록 확대)
+      const ratio = dist / (pinchStartDist || 1);
+      // 비율 2배 ≈ 약 2레벨 확대, 로그 스케일로 부드럽게
+      const levelDelta = -Math.round(Math.log2(Math.max(0.25, Math.min(4, ratio))) * 2);
+      let newLevel = pinchStartLevel + levelDelta;
+      newLevel = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, newLevel));
+      if (newLevel !== pinchLastLevel) {
+        pinchLastLevel = newLevel;
+        map.setLevel(newLevel);
+        lastZoomAt = Date.now();
+      }
       return;
     }
-    if (!e.touches.length) return;
-    const t = e.touches[0];
-    moveLongPress(t.clientX, t.clientY);
+
+    // ----- 한 손가락: 지도 이동 -----
+    if (e.touches.length === 1 && panStartTouch && panStartCenterPt) {
+      const t = e.touches[0];
+      const dx = t.clientX - panStartTouch.x;
+      const dy = t.clientY - panStartTouch.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist > MOVE_CANCEL_PX) {
+        clearLongPress();
+        panActive = true;
+        e.preventDefault();
+        try {
+          // 손가락이 오른쪽으로 가면 지도 내용도 오른쪽 → 중심은 반대로
+          const proj = map.getProjection();
+          const desired = new kakao.maps.Point(
+            panStartCenterPt.x - dx,
+            panStartCenterPt.y - dy
+          );
+          const newCenter = proj.coordsFromContainerPoint(desired);
+          map.setCenter(newCenter);
+        } catch (_) {}
+      }
+    }
+  }, { passive: false });
+
+  container.addEventListener("touchend", (e) => {
+    clearLongPress();
+    const remaining = e.touches ? e.touches.length : 0;
+
+    if (remaining >= 2) {
+      multiTouchActive = true;
+      return;
+    }
+
+    if (remaining === 1) {
+      // 핀치 → 한 손가락으로 전환: 팬 재시작
+      multiTouchActive = false;
+      lastMultiTouchAt = Date.now();
+      pinchActive = false;
+      const t = e.touches[0];
+      panStartTouch = { x: t.clientX, y: t.clientY };
+      try {
+        const center = map.getCenter();
+        const pt = map.getProjection().containerPointFromCoords(center);
+        panStartCenterPt = { x: pt.x, y: pt.y };
+      } catch (_) {
+        panStartCenterPt = null;
+      }
+      panActive = false;
+      return;
+    }
+
+    // 손가락 모두 뗌
+    if (multiTouchActive || pinchActive) lastMultiTouchAt = Date.now();
+    multiTouchActive = false;
+    pinchActive = false;
+    panActive = false;
+    panStartTouch = null;
+    panStartCenterPt = null;
   }, { passive: true });
 
-  const endTouchSequence = (e) => {
+  container.addEventListener("touchcancel", () => {
     clearLongPress();
-    // 남은 손가락이 1개 이하면 멀티터치 종료
-    const remaining = e && e.touches ? e.touches.length : 0;
-    if (remaining < 2) {
-      if (multiTouchActive) lastMultiTouchAt = Date.now();
-      multiTouchActive = remaining >= 2;
-    }
-  };
-  container.addEventListener("touchend", endTouchSequence, { passive: true });
-  container.addEventListener("touchcancel", endTouchSequence, { passive: true });
+    multiTouchActive = false;
+    pinchActive = false;
+    panActive = false;
+    panStartTouch = null;
+    panStartCenterPt = null;
+    lastMultiTouchAt = Date.now();
+  }, { passive: true });
 
-  // 마우스 길게 누르기 — 터치 직후 합성 mousedown 은 무시
+  // 마우스 길게 누르기 (PC / 패드+마우스)
   container.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
     if (Date.now() - lastTouchAt < 800) return;
     if (isInteractiveTarget(e.target)) return;
     startLongPress(e.clientX, e.clientY);
   });
-  container.addEventListener("mousemove", (e) => moveLongPress(e.clientX, e.clientY));
+  container.addEventListener("mousemove", (e) => {
+    if (!longPressStartXY) return;
+    const moved = Math.abs(e.clientX - longPressStartXY.x) + Math.abs(e.clientY - longPressStartXY.y);
+    if (moved > MOVE_CANCEL_PX) clearLongPress();
+  });
   container.addEventListener("mouseup", () => clearLongPress());
   container.addEventListener("mouseleave", () => clearLongPress());
 }
@@ -1938,7 +2053,7 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") handleSearch();
 });
 
-/* -------- 결과 목록 접기/펼치기 (모바일 하단 · PC 오른쪽) -------- */
+/* -------- 결과 목록 접기/펼치기 (화살표만) -------- */
 (function setupPanelCollapse() {
   const sidePanel = document.getElementById("sidePanel");
   const btnBottom = document.getElementById("panelToggleBottom");
@@ -1950,16 +2065,15 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     [btnBottom, btnSide].forEach((btn) => {
       if (!btn) return;
       btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      btn.setAttribute("aria-label", collapsed ? "목록 펼치기" : "목록 접기");
+      btn.title = collapsed ? "목록 펼치기" : "목록 접기";
       const icon = btn.querySelector(".panel-toggle-icon");
-      const text = btn.querySelector(".panel-toggle-text");
-      if (text) text.textContent = collapsed ? "펼치기" : "접기";
-      // 모바일 하단: ▲ 접기 / ▼ 펼치기  |  PC: ◀ 접기 / ▶ 펼치기
+      // 모바일: ▲ 접기 / ▼ 펼치기  |  PC: ◀ 접기 / ▶ 펼치기
       if (icon) {
         if (btn === btnBottom) icon.textContent = collapsed ? "▼" : "▲";
         else icon.textContent = collapsed ? "▶" : "◀";
       }
     });
-    // 레이아웃 변경 후 지도 크기 재계산
     if (map && typeof map.relayout === "function") {
       setTimeout(() => {
         try { map.relayout(); } catch (_) {}
@@ -1970,6 +2084,181 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
   const toggle = () => setCollapsed(!sidePanel.classList.contains("is-collapsed"));
   if (btnBottom) btnBottom.addEventListener("click", toggle);
   if (btnSide) btnSide.addEventListener("click", toggle);
+})();
+
+/* -------- 지도 조이스틱 (터치·마우스·키보드 화살표) -------- */
+(function setupMapJoystick() {
+  const root = document.getElementById("mapJoystick");
+  const knob = document.getElementById("mapJoystickKnob");
+  if (!root || !knob) return;
+
+  const MAX_KNOB = 22; // 노브가 베이스 안에서 움직일 수 있는 최대 픽셀
+  const PAN_SPEED = 4.5; // 프레임당 이동 강도 (레벨에 따라 보정)
+
+  let vecX = 0; // -1 ~ 1
+  let vecY = 0;
+  let keyVecX = 0;
+  let keyVecY = 0;
+  let pointerId = null;
+  let rafId = null;
+
+  function setKnob(nx, ny) {
+    // nx, ny: -1 ~ 1
+    const len = Math.hypot(nx, ny);
+    if (len > 1) {
+      nx /= len;
+      ny /= len;
+    }
+    vecX = nx;
+    vecY = ny;
+    knob.style.transform = `translate(${nx * MAX_KNOB}px, ${ny * MAX_KNOB}px)`;
+    root.classList.toggle("is-active", Math.hypot(nx, ny) > 0.05);
+  }
+
+  function resetKnob() {
+    setKnob(0, 0);
+  }
+
+  function applyCombinedVector() {
+    // 조이스틱 + 키보드 합산 후 정규화
+    let x = vecX + keyVecX;
+    let y = vecY + keyVecY;
+    const len = Math.hypot(x, y);
+    if (len > 1) {
+      x /= len;
+      y /= len;
+    }
+    return { x, y };
+  }
+
+  function tick() {
+    rafId = null;
+    if (!map) {
+      schedule();
+      return;
+    }
+    const { x, y } = applyCombinedVector();
+    if (Math.hypot(x, y) < 0.04) {
+      schedule();
+      return;
+    }
+    try {
+      const level = map.getLevel();
+      // 줌 아웃일수록 더 많이 이동
+      const step = PAN_SPEED * (0.6 + level * 0.35);
+      // 화면 기준: x>0 오른쪽, y>0 아래 → 지도 중심은 반대
+      const proj = map.getProjection();
+      const center = map.getCenter();
+      const pt = proj.containerPointFromCoords(center);
+      const next = new kakao.maps.Point(pt.x + x * step, pt.y + y * step);
+      map.setCenter(proj.coordsFromContainerPoint(next));
+    } catch (_) {}
+    schedule();
+  }
+
+  function schedule() {
+    if (rafId == null) rafId = requestAnimationFrame(tick);
+  }
+  schedule();
+
+  function pointFromEvent(e) {
+    const rect = root.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const clientX = e.clientX != null ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : cx);
+    const clientY = e.clientY != null ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : cy);
+    const dx = clientX - cx;
+    const dy = clientY - cy;
+    const max = rect.width / 2 - 4;
+    return { nx: dx / max, ny: dy / max };
+  }
+
+  function onPointerDown(e) {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    pointerId = e.pointerId != null ? e.pointerId : "touch";
+    try { root.setPointerCapture(e.pointerId); } catch (_) {}
+    const p = pointFromEvent(e);
+    setKnob(p.nx, p.ny);
+  }
+
+  function onPointerMove(e) {
+    if (pointerId == null) return;
+    if (e.pointerId != null && e.pointerId !== pointerId) return;
+    e.preventDefault();
+    const p = pointFromEvent(e);
+    setKnob(p.nx, p.ny);
+  }
+
+  function onPointerUp(e) {
+    if (pointerId == null) return;
+    if (e.pointerId != null && e.pointerId !== pointerId) return;
+    pointerId = null;
+    resetKnob();
+  }
+
+  root.addEventListener("pointerdown", onPointerDown);
+  root.addEventListener("pointermove", onPointerMove);
+  root.addEventListener("pointerup", onPointerUp);
+  root.addEventListener("pointercancel", onPointerUp);
+  // 터치 폴백
+  root.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.touches.length) return;
+    pointerId = "touch";
+    const p = pointFromEvent(e.touches[0]);
+    setKnob(p.nx, p.ny);
+  }, { passive: false });
+  root.addEventListener("touchmove", (e) => {
+    if (pointerId == null) return;
+    e.preventDefault();
+    if (!e.touches.length) return;
+    const p = pointFromEvent(e.touches[0]);
+    setKnob(p.nx, p.ny);
+  }, { passive: false });
+  root.addEventListener("touchend", () => {
+    pointerId = null;
+    resetKnob();
+  });
+  root.addEventListener("touchcancel", () => {
+    pointerId = null;
+    resetKnob();
+  });
+
+  // 키보드 화살표 연동
+  const keyMap = {
+    ArrowUp: { x: 0, y: -1 },
+    ArrowDown: { x: 0, y: 1 },
+    ArrowLeft: { x: -1, y: 0 },
+    ArrowRight: { x: 1, y: 0 }
+  };
+
+  window.addEventListener("keydown", (e) => {
+    if (!keyMap[e.key]) return;
+    // 검색창 입력 중이면 무시
+    const tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || (e.target && e.target.isContentEditable)) return;
+    e.preventDefault();
+    const v = keyMap[e.key];
+    if (v.x < 0) keyVecX = -1;
+    if (v.x > 0) keyVecX = 1;
+    if (v.y < 0) keyVecY = -1;
+    if (v.y > 0) keyVecY = 1;
+    // 키보드만 쓸 때도 노브 표시
+    if (pointerId == null) setKnob(keyVecX, keyVecY);
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (!keyMap[e.key]) return;
+    const v = keyMap[e.key];
+    if (v.x < 0 && keyVecX < 0) keyVecX = 0;
+    if (v.x > 0 && keyVecX > 0) keyVecX = 0;
+    if (v.y < 0 && keyVecY < 0) keyVecY = 0;
+    if (v.y > 0 && keyVecY > 0) keyVecY = 0;
+    if (pointerId == null) setKnob(keyVecX, keyVecY);
+  });
 })();
 
 /* -------- 초기화 버튼: 사이트 첫 진입 상태로 복귀 -------- */
