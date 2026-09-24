@@ -685,3 +685,8 @@ html, body {
   background: #f0f0f0;
   transform: scale(.96);
 }
+
+/* 태블릿 수동 지도 이동: 이동 감도는 JS에서 조절 */
+#map { touch-action: none; }
+.touch-zoom-controls { pointer-events: auto; }
+.touch-zoom-controls button { touch-action: manipulation; user-select: none; }

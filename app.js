@@ -227,7 +227,7 @@ function initMap() {
   const MOVE_CANCEL_PX = 10;
   const SYNTHETIC_CLICK_GUARD_MS = 900;
   // 손가락 이동 1px을 지도에는 더 작게 반영해 태블릿 드래그 속도를 자연스럽게 조정
-  const TOUCH_DRAG_SENSITIVITY = 0.38;
+  const TOUCH_DRAG_SENSITIVITY = 0.12;
 
   // 우클릭(PC)
   container.addEventListener("contextmenu", (e) => {
@@ -267,6 +267,14 @@ function initMap() {
   // 손가락 이동량을 지도 중심 좌표로 변환한다. 이렇게 하면 브라우저/카카오맵의
   // 기본 touch gesture가 막혀 있어도 지도 자체를 이동시킬 수 있다.
   container.addEventListener("touchstart", (e) => {
+    // 확대/축소 버튼을 누른 터치는 지도 드래그/롱프레스 로직에서 제외
+    if (e.target && e.target.closest && e.target.closest(".touch-zoom-controls")) {
+      clearLongPressTimer();
+      touchSequenceActive = false;
+      touchLongPressTriggered = false;
+      touchDragging = false;
+      return;
+    }
     if (e.touches.length >= 2) {
       clearLongPressTimer();
       touchSequenceActive = false;
@@ -2159,15 +2167,32 @@ Promise.allSettled([loadKakaoSdk(KAKAO_APP_KEY), loadExcelData(EXCEL_FILE_URL)])
   });
 
 // 태블릿/모바일 확대·축소 버튼
+// 지도 컨테이너의 touchstart가 버튼의 탭을 가로채지 않도록 버튼에서 직접 처리한다.
+function changeMapZoom(delta) {
+  if (!map) return;
+  const nextLevel = Math.max(1, Math.min(14, map.getLevel() + delta));
+  map.setLevel(nextLevel);
+}
+
 const zoomInBtn = document.getElementById("zoomInBtn");
 const zoomOutBtn = document.getElementById("zoomOutBtn");
-if (zoomInBtn) zoomInBtn.addEventListener("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  map.setLevel(Math.max(1, map.getLevel() - 1));
-});
-if (zoomOutBtn) zoomOutBtn.addEventListener("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  map.setLevel(Math.min(14, map.getLevel() + 1));
+[
+  [zoomInBtn, -1],
+  [zoomOutBtn, 1]
+].forEach(([btn, delta]) => {
+  if (!btn) return;
+  const activate = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    changeMapZoom(delta);
+  };
+  btn.addEventListener("touchstart", activate, { passive: false });
+  btn.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "touch") return;
+    activate(e);
+  });
+  btn.addEventListener("click", (e) => {
+    if (e.detail === 0) return;
+    activate(e);
+  });
 });
