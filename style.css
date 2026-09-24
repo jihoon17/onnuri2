@@ -319,7 +319,7 @@ html, body {
   height: 100%;
   min-height: 380px;
   background: #dfe7ee;
-  /* 태블릿에서 손가락을 누른 채 움직일 때 카카오맵의 드래그가 우선되도록 함 */
+  /* 터치 드래그는 app.js에서 카카오맵 panBy()로 직접 처리 */
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;

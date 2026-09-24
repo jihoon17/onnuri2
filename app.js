@@ -216,6 +216,8 @@ function initMap() {
   let lastTouchStartAt = 0;
   let longPressTimer = null;
   let longPressStartXY = null;
+  let lastTouchXY = null;
+  let touchDragging = false;
 
   // 우클릭(PC) - 카카오맵 rightclick 이벤트 대신 표준 contextmenu 이벤트를 직접 사용
   container.addEventListener("contextmenu", (e) => {
@@ -274,73 +276,77 @@ function initMap() {
       clearLongPressTimer();
       touchSequenceActive = false;
       touchLongPressTriggered = false;
+      touchDragging = false;
+      lastTouchXY = null;
       return;
     }
 
     clearLongPressTimer();
     const touch = e.touches[0];
     lastTouchStartAt = Date.now();
-
     touchSequenceActive = true;
     touchLongPressTriggered = false;
-    longPressStartXY = {
-      x: touch.clientX,
-      y: touch.clientY
-    };
+    touchDragging = false;
+    longPressStartXY = { x: touch.clientX, y: touch.clientY };
+    lastTouchXY = { x: touch.clientX, y: touch.clientY };
 
-    // 좌표는 타이머 안에서 Touch 객체를 참조하지 않고 숫자로 고정한다.
     const startX = touch.clientX;
     const startY = touch.clientY;
 
     longPressTimer = setTimeout(() => {
       longPressTimer = null;
-      if (!touchSequenceActive || touchLongPressTriggered) return;
+      if (!touchSequenceActive || touchDragging || touchLongPressTriggered) return;
 
       touchLongPressTriggered = true;
       ignoreClickUntil = Date.now() + SYNTHETIC_CLICK_GUARD_MS;
-
       const latlng = containerPointToLatLng(startX, startY);
       handleMapPick(latlng);
     }, LONG_PRESS_MS);
   }, { passive: true });
 
+  // 태블릿에서는 CSS touch-action:none 때문에 브라우저/카카오맵의 기본
+  // 터치 드래그가 막힐 수 있으므로, 손가락 이동량을 직접 카카오맵에 전달한다.
   container.addEventListener("touchmove", (e) => {
-    if (!touchSequenceActive || !longPressStartXY || !e.touches.length) return;
+    if (!touchSequenceActive || !lastTouchXY || !e.touches.length) return;
 
     const touch = e.touches[0];
-    const moved = Math.hypot(
+    const dx = touch.clientX - lastTouchXY.x;
+    const dy = touch.clientY - lastTouchXY.y;
+    const totalMoved = Math.hypot(
       touch.clientX - longPressStartXY.x,
       touch.clientY - longPressStartXY.y
     );
 
-    if (moved > MOVE_CANCEL_PX && !touchLongPressTriggered) {
-      // 이동이 시작되면 롱프레스만 취소하고, touchmove 자체는 막지 않는다.
-      // 따라서 카카오맵이 손가락 드래그를 그대로 받아 지도를 이동시킬 수 있다.
+    if (totalMoved > MOVE_CANCEL_PX && !touchLongPressTriggered) {
       clearLongPressTimer();
-      touchSequenceActive = false;
-      longPressStartXY = null;
+      touchDragging = true;
+      // 손가락을 오른쪽/아래로 움직이면 지도 내용도 같은 방향으로 움직인다.
+      map.panBy(dx, dy);
+      e.preventDefault();
+    } else if (touchDragging) {
+      map.panBy(dx, dy);
+      e.preventDefault();
     }
-  }, { passive: true });
+
+    lastTouchXY = { x: touch.clientX, y: touch.clientY };
+  }, { passive: false });
 
   container.addEventListener("touchend", () => {
     const wasLongPress = touchLongPressTriggered;
 
     clearLongPressTimer();
     touchSequenceActive = false;
+    touchDragging = false;
     longPressStartXY = null;
+    lastTouchXY = null;
 
     if (wasLongPress) {
-      // touchend 직후의 synthetic click 및 지연된 Kakao click까지 차단
       ignoreClickUntil = Math.max(
         ignoreClickUntil,
         Date.now() + SYNTHETIC_CLICK_GUARD_MS
       );
-
-      // 잠시 뒤 다음 일반 터치 클릭은 정상적으로 동작하도록 복구
       window.setTimeout(() => {
-        if (Date.now() >= ignoreClickUntil) {
-          touchLongPressTriggered = false;
-        }
+        if (Date.now() >= ignoreClickUntil) touchLongPressTriggered = false;
       }, SYNTHETIC_CLICK_GUARD_MS + 50);
     } else {
       touchLongPressTriggered = false;
