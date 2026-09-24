@@ -47,6 +47,8 @@ let searchDetailIndex = 0;
 let selectedMarket = null;      // 라벨 클릭으로 선택된 상점가 (null이면 선택 없음)
 let ignoreClickUntil = 0;       // 롱프레스/라벨 탭 직후 지도 클릭·핀 중복 방지
 let lastZoomAt = 0;             // 줌 직후 라벨 탭으로 체크리스트 열리는 것 방지
+let multiTouchActive = false;   // 두 손가락(핀치 줌) 중이면 true
+let lastMultiTouchAt = 0;       // 멀티터치 종료 시각 (직후 라벨 탭 무시)
 let checklistMarket = null;     // 체크리스트가 열려있는 상점가 (null이면 닫힘)
 let checklistOverlay = null;    // 체크리스트 흰색 박스(CustomOverlay)
 let checklistHighlights = {};   // parcelId -> kakao.maps.Polygon (체크리스트에서 켠 주소 강조)
@@ -286,9 +288,16 @@ function initMap() {
   };
 
   // 터치 — 라벨 위에서는 롱프레스 시작하지 않음 (강조만)
+  // 두 손가락 이상이면 핀치 줌으로 보고 롱프레스·라벨 터치 모두 무시
   container.addEventListener("touchstart", (e) => {
     lastTouchAt = Date.now();
-    if (e.touches.length !== 1) {
+    if (e.touches.length >= 2) {
+      multiTouchActive = true;
+      lastMultiTouchAt = Date.now();
+      clearLongPress();
+      return;
+    }
+    if (multiTouchActive || e.touches.length !== 1) {
       clearLongPress();
       return;
     }
@@ -301,13 +310,28 @@ function initMap() {
   }, { passive: true });
 
   container.addEventListener("touchmove", (e) => {
+    if (e.touches.length >= 2) {
+      multiTouchActive = true;
+      lastMultiTouchAt = Date.now();
+      clearLongPress();
+      return;
+    }
     if (!e.touches.length) return;
     const t = e.touches[0];
     moveLongPress(t.clientX, t.clientY);
   }, { passive: true });
 
-  container.addEventListener("touchend", () => clearLongPress(), { passive: true });
-  container.addEventListener("touchcancel", () => clearLongPress(), { passive: true });
+  const endTouchSequence = (e) => {
+    clearLongPress();
+    // 남은 손가락이 1개 이하면 멀티터치 종료
+    const remaining = e && e.touches ? e.touches.length : 0;
+    if (remaining < 2) {
+      if (multiTouchActive) lastMultiTouchAt = Date.now();
+      multiTouchActive = remaining >= 2;
+    }
+  };
+  container.addEventListener("touchend", endTouchSequence, { passive: true });
+  container.addEventListener("touchcancel", endTouchSequence, { passive: true });
 
   // 마우스 길게 누르기 — 터치 직후 합성 mousedown 은 무시
   container.addEventListener("mousedown", (e) => {
@@ -871,8 +895,10 @@ function drawMarketLabels() {
         e.stopPropagation();
       }
       const now = Date.now();
-      // 줌인/아웃 직후(핀치·버튼)에는 체크리스트를 열지 않음
-      if (now - lastZoomAt < 500) return;
+      // 두 손가락 제스처 중·직후, 또는 줌 직후에는 체크리스트를 열지 않음
+      if (multiTouchActive) return;
+      if (now - lastMultiTouchAt < 300) return;
+      if (now - lastZoomAt < 300) return;
       if (now - lastActivateAt < 400) return;
       lastActivateAt = now;
       // 지도 롱프레스/클릭이 이어서 핀을 찍지 않도록
@@ -881,6 +907,12 @@ function drawMarketLabels() {
     };
     // 라벨 위에서 터치가 시작되면 지도 롱프레스 취소
     content.addEventListener("touchstart", (e) => {
+      // 두 손가락이면 라벨 처리 자체를 하지 않음
+      if (e.touches.length >= 2) {
+        multiTouchActive = true;
+        lastMultiTouchAt = Date.now();
+        return;
+      }
       e.stopPropagation();
     }, { passive: true });
     content.addEventListener("mousedown", (e) => {
@@ -888,6 +920,9 @@ function drawMarketLabels() {
     });
     content.addEventListener("click", onLabelActivate);
     content.addEventListener("touchend", (e) => {
+      // 핀치 줌 중·직후 touchend 로 라벨이 눌리는 것 방지
+      if (multiTouchActive || (e.touches && e.touches.length >= 1)) return;
+      if (Date.now() - lastMultiTouchAt < 300) return;
       onLabelActivate(e);
     }, { passive: false });
     content.addEventListener("dblclick", (e) => {
@@ -1096,15 +1131,12 @@ function removePickedLocationById(id) {
     pickedViewIndex = -1;
     renderInitialOverview();
   } else {
-    // 삭제된 항목이 현재 보던 것보다 앞이면 인덱스 보정, 아니면 같은 자리(또는 마지막) 유지
-    if (pickedViewIndex > idx) {
-      pickedViewIndex -= 1;
-    } else if (pickedViewIndex >= pickedLocations.length) {
-      pickedViewIndex = pickedLocations.length - 1;
-    } else if (pickedViewIndex < 0) {
-      pickedViewIndex = pickedLocations.length - 1;
-    }
-    showPickedLocationAt(pickedViewIndex, false);
+    // 삭제 후 → 바로 이전 핀으로 이동 (없으면 다음=남은 목록의 첫 항목)
+    // idx 삭제 전 기준: 이전 = idx-1, 없으면 0 (삭제 후 앞당겨진 다음 핀)
+    let newIndex = idx - 1;
+    if (newIndex < 0) newIndex = 0;
+    if (newIndex >= pickedLocations.length) newIndex = pickedLocations.length - 1;
+    showPickedLocationAt(newIndex, true); // panMap: 이전 위치로 지도 이동
   }
 }
 
