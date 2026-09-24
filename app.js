@@ -204,59 +204,150 @@ function initMap() {
     return map.getProjection().coordsFromContainerPoint(new kakao.maps.Point(x, y));
   }
 
-  // 우클릭 직후 브라우저가 보내는 가짜 click 을 무시하기 위한 타임스탬프
+  // 우클릭/터치 후 브라우저가 보내는 후속 click을 무시하기 위한 상태
   let ignoreClickUntil = 0;
+
+  // 터치로 꾹 눌러 핀을 만든 뒤 발생하는 synthetic click을 확실히 차단하기 위한 상태
+  let touchSequenceActive = false;
+  let touchLongPressTriggered = false;
+  let lastTouchStartAt = 0;
+  let longPressTimer = null;
+  let longPressStartXY = null;
 
   // 우클릭(PC) - 카카오맵 rightclick 이벤트 대신 표준 contextmenu 이벤트를 직접 사용
   container.addEventListener("contextmenu", (e) => {
     e.preventDefault();
-    ignoreClickUntil = Date.now() + 400;
+
+    // 태블릿 long-press에서 발생할 수 있는 contextmenu와
+    // 우리가 직접 처리한 long-press가 서로 핀을 중복 생성하지 않도록 한다.
+    if (touchSequenceActive || touchLongPressTriggered ||
+        Date.now() - lastTouchStartAt < 1200) {
+      ignoreClickUntil = Date.now() + SYNTHETIC_CLICK_GUARD_MS;
+      return;
+    }
+
+    ignoreClickUntil = Date.now() + 800;
     const latlng = containerPointToLatLng(e.clientX, e.clientY);
     handleMapPick(latlng);
   });
 
   // 일반 클릭: 이미 핀이 찍힌 영역 안을 클릭하면 제거
   kakao.maps.event.addListener(map, "click", (mouseEvent) => {
-    if (Date.now() < ignoreClickUntil) return;
+    // 태블릿에서 꾹 누르기로 핀을 만든 직후 발생하는 카카오맵 click 방지
+    if (touchLongPressTriggered || Date.now() < ignoreClickUntil) return;
     handleMapClick(mouseEvent.latLng);
   });
 
   // DOM 클릭 백업: 카카오 오버레이가 이벤트를 삼켜도 좌표로 직접 판별해 제거
+  // capture 단계에서 터치 long-press의 synthetic click을 먼저 차단한다.
   container.addEventListener("click", (e) => {
+    if (touchLongPressTriggered || Date.now() < ignoreClickUntil) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.button !== 0) return;
-    if (Date.now() < ignoreClickUntil) return;
     const latlng = containerPointToLatLng(e.clientX, e.clientY);
     handleMapClick(latlng);
-  });
+  }, true);
 
-  // 꾹 누르기(모바일) - 터치 길게 누르기 직접 구현 (PC와 동일한 좌표 변환 함수 사용)
-  let longPressTimer = null;
-  let longPressStartXY = null;
+  // 꾹 누르기(태블릿/스마트폰)
+  // 1) 약 0.5초 이상 누르면 핀 1개만 생성
+  // 2) 손을 뗀 뒤 따라오는 synthetic click은 차단
+  // 3) 손가락을 움직이면 long-press 취소 → 지도 이동은 정상 동작
+  const LONG_PRESS_MS = 500;
+  const MOVE_CANCEL_PX = 12;
+  const SYNTHETIC_CLICK_GUARD_MS = 900;
 
-  container.addEventListener("touchstart", (e) => {
-    if (e.touches.length !== 1) return;
-    const touch = e.touches[0];
-    longPressStartXY = { x: touch.clientX, y: touch.clientY };
-
-    longPressTimer = setTimeout(() => {
-      ignoreClickUntil = Date.now() + 500;
-      const latlng = containerPointToLatLng(touch.clientX, touch.clientY);
-      handleMapPick(latlng);
-    }, 550);
-  }, { passive: true });
-
-  const cancelLongPress = (e) => {
-    if (longPressTimer && longPressStartXY && e.changedTouches && e.changedTouches[0]) {
-      const touch = e.changedTouches[0];
-      const moved = Math.abs(touch.clientX - longPressStartXY.x) + Math.abs(touch.clientY - longPressStartXY.y);
-      if (moved > 12) clearTimeout(longPressTimer);
-    } else if (longPressTimer) {
+  const clearLongPressTimer = () => {
+    if (longPressTimer !== null) {
       clearTimeout(longPressTimer);
+      longPressTimer = null;
     }
   };
-  container.addEventListener("touchmove", cancelLongPress, { passive: true });
-  container.addEventListener("touchend", () => clearTimeout(longPressTimer));
-  container.addEventListener("touchcancel", () => clearTimeout(longPressTimer));
+
+  container.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) {
+      clearLongPressTimer();
+      touchSequenceActive = false;
+      touchLongPressTriggered = false;
+      return;
+    }
+
+    clearLongPressTimer();
+    const touch = e.touches[0];
+    lastTouchStartAt = Date.now();
+
+    touchSequenceActive = true;
+    touchLongPressTriggered = false;
+    longPressStartXY = {
+      x: touch.clientX,
+      y: touch.clientY
+    };
+
+    // 좌표는 타이머 안에서 Touch 객체를 참조하지 않고 숫자로 고정한다.
+    const startX = touch.clientX;
+    const startY = touch.clientY;
+
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      if (!touchSequenceActive || touchLongPressTriggered) return;
+
+      touchLongPressTriggered = true;
+      ignoreClickUntil = Date.now() + SYNTHETIC_CLICK_GUARD_MS;
+
+      const latlng = containerPointToLatLng(startX, startY);
+      handleMapPick(latlng);
+    }, LONG_PRESS_MS);
+  }, { passive: true });
+
+  container.addEventListener("touchmove", (e) => {
+    if (!touchSequenceActive || !longPressStartXY || !e.touches.length) return;
+
+    const touch = e.touches[0];
+    const moved = Math.hypot(
+      touch.clientX - longPressStartXY.x,
+      touch.clientY - longPressStartXY.y
+    );
+
+    if (moved > MOVE_CANCEL_PX && !touchLongPressTriggered) {
+      clearLongPressTimer();
+      touchSequenceActive = false;
+      longPressStartXY = null;
+    }
+  }, { passive: true });
+
+  container.addEventListener("touchend", () => {
+    const wasLongPress = touchLongPressTriggered;
+
+    clearLongPressTimer();
+    touchSequenceActive = false;
+    longPressStartXY = null;
+
+    if (wasLongPress) {
+      // touchend 직후의 synthetic click 및 지연된 Kakao click까지 차단
+      ignoreClickUntil = Math.max(
+        ignoreClickUntil,
+        Date.now() + SYNTHETIC_CLICK_GUARD_MS
+      );
+
+      // 잠시 뒤 다음 일반 터치 클릭은 정상적으로 동작하도록 복구
+      window.setTimeout(() => {
+        if (Date.now() >= ignoreClickUntil) {
+          touchLongPressTriggered = false;
+        }
+      }, SYNTHETIC_CLICK_GUARD_MS + 50);
+    } else {
+      touchLongPressTriggered = false;
+    }
+  }, { passive: true });
+
+  container.addEventListener("touchcancel", () => {
+    clearLongPressTimer();
+    touchSequenceActive = false;
+    touchLongPressTriggered = false;
+    longPressStartXY = null;
+  }, { passive: true });
 }
 
 function showFallback(message) {
