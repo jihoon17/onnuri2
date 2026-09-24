@@ -100,12 +100,6 @@ html, body {
 .side-panel.is-collapsed .result-header {
   display: none;
 }
-.side-panel.is-collapsed .panel-toggle--bottom .panel-toggle-icon {
-  transform: rotate(180deg);
-}
-.side-panel.is-collapsed .panel-toggle--bottom .panel-toggle-text {
-  /* JS에서 텍스트도 바꿈 */
-}
 
 /* 검색 영역 */
 .search-bar {
@@ -543,16 +537,16 @@ html, body {
   border-color: #7e22ce transparent transparent transparent;
 }
 
-/* 상점가 주소 체크리스트 (플로팅 패널: 드래그 / 리사이즈) */
+/* 상점가 주소 체크리스트 (플로팅 패널: 드래그 / 리사이즈) — 기본 크기의 4/5 */
 .addr-checklist-panel {
   position: absolute;
   z-index: 100;
-  width: 260px;
-  height: 240px;
-  min-width: 180px;
-  min-height: 120px;
-  max-width: 420px;
-  max-height: 480px;
+  width: 208px;
+  height: 192px;
+  min-width: 144px;
+  min-height: 96px;
+  max-width: 336px;
+  max-height: 384px;
   display: flex;
   flex-direction: column;
   background: #ffffff;
@@ -766,7 +760,6 @@ html, body {
     gap: 8px;
   }
   .side-panel.is-collapsed .panel-toggle--side .panel-toggle-icon {
-    transform: rotate(180deg);
     writing-mode: horizontal-tb;
   }
 

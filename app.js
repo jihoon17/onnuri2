@@ -46,6 +46,7 @@ let searchDetailItems = []; // [{ latlng, jibunFull, roadFull, parcelAddress, ma
 let searchDetailIndex = 0;
 let selectedMarket = null;      // 라벨 클릭으로 선택된 상점가 (null이면 선택 없음)
 let ignoreClickUntil = 0;       // 롱프레스/라벨 탭 직후 지도 클릭·핀 중복 방지
+let lastZoomAt = 0;             // 줌 직후 라벨 탭으로 체크리스트 열리는 것 방지
 let checklistMarket = null;     // 체크리스트가 열려있는 상점가 (null이면 닫힘)
 let checklistOverlay = null;    // 체크리스트 흰색 박스(CustomOverlay)
 let checklistHighlights = {};   // parcelId -> kakao.maps.Polygon (체크리스트에서 켠 주소 강조)
@@ -196,7 +197,9 @@ function initMap() {
   map.addControl(mapTypeControl, kakao.maps.ControlPosition.TOPLEFT);
 
   // 줌 레벨 변경 시 라벨 표시/숨김 (마커는 항상 유지)
+  // 줌인/아웃 직후 라벨 터치로 체크리스트가 뜨지 않도록 시각 기록
   kakao.maps.event.addListener(map, "zoom_changed", () => {
+    lastZoomAt = Date.now();
     updateLabelVisibilityByZoom();
   });
 
@@ -635,9 +638,9 @@ function openChecklist(marketName) {
   const mapWrap = document.querySelector(".map-wrap") || document.getElementById("map")?.parentElement;
   if (!mapWrap) return;
 
-  // 체크리스트는 지도 우측 상단에 표시 (스크린샷과 동일한 위치)
+  // 체크리스트는 지도 우측 상단에 표시 (기본 크기의 4/5)
   const wrapRect = mapWrap.getBoundingClientRect();
-  const panelW = 260;
+  const panelW = 208;
   const initLeft = Math.max(8, wrapRect.width - panelW - 16);
   const initTop = 16;
 
@@ -759,8 +762,8 @@ function openChecklist(marketName) {
     } else if (resizing) {
       const dw = e.clientX - startX;
       const dh = e.clientY - startY;
-      const newW = Math.max(180, Math.min(420, startW + dw));
-      const newH = Math.max(120, Math.min(480, startH + dh));
+      const newW = Math.max(144, Math.min(336, startW + dw));
+      const newH = Math.max(96, Math.min(384, startH + dh));
       panel.style.width = newW + "px";
       panel.style.height = newH + "px";
     }
@@ -868,6 +871,8 @@ function drawMarketLabels() {
         e.stopPropagation();
       }
       const now = Date.now();
+      // 줌인/아웃 직후(핀치·버튼)에는 체크리스트를 열지 않음
+      if (now - lastZoomAt < 500) return;
       if (now - lastActivateAt < 400) return;
       lastActivateAt = now;
       // 지도 롱프레스/클릭이 이어서 핀을 찍지 않도록
