@@ -319,7 +319,7 @@ html, body {
   height: 100%;
   min-height: 380px;
   background: #dfe7ee;
-  /* 지도 엔진의 기본 모바일 터치 드래그를 사용 */
+  /* 터치 입력은 카카오맵 자체가 처리하도록 둡니다. */
   touch-action: auto;
   -webkit-user-select: none;
   user-select: none;
