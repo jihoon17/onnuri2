@@ -221,12 +221,18 @@ function initMap() {
   let dragStartTouch = null;
   let pinchStartDistance = null;
   let pinchLastDistance = null;
+  let pinchLastZoomAt = 0;
+  let dragRaf = null;
+  let latestDragDx = 0;
+  let latestDragDy = 0;
 
   const LONG_PRESS_MS = 500;
   const MOVE_CANCEL_PX = 10;
   const SYNTHETIC_CLICK_GUARD_MS = 900;
   // 손가락 이동 1px을 지도에는 더 작게 반영해 태블릿 드래그 속도를 자연스럽게 조정
   const TOUCH_DRAG_SENSITIVITY = 0.08;
+  const PINCH_ZOOM_THRESHOLD_PX = 120;
+  const PINCH_ZOOM_COOLDOWN_MS = 220;
 
   // 우클릭(PC)
   container.addEventListener("contextmenu", (e) => {
@@ -283,6 +289,7 @@ function initMap() {
       const b = e.touches[1];
       pinchStartDistance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
       pinchLastDistance = pinchStartDistance;
+      pinchLastZoomAt = performance.now();
       e.preventDefault();
       return;
     }
@@ -330,14 +337,19 @@ function initMap() {
       const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
       if (pinchLastDistance === null) pinchLastDistance = distance;
       const change = distance - pinchLastDistance;
-      // 손가락 간격이 약 60px 변할 때마다 한 단계씩 확대/축소
-      if (Math.abs(change) >= 60) {
+      // 손가락 간격이 충분히 변했을 때만 한 단계 이동하고, Kakao의 애니메이션을 사용해
+      // 확대/축소가 확 튀지 않도록 한다. 짧은 시간에 여러 단계가 연속 적용되지 않게 쿨다운도 둔다.
+      const now = performance.now();
+      if (Math.abs(change) >= PINCH_ZOOM_THRESHOLD_PX && now - pinchLastZoomAt >= PINCH_ZOOM_COOLDOWN_MS) {
         const currentLevel = map.getLevel();
         const nextLevel = change > 0
           ? Math.max(1, currentLevel - 1)
           : Math.min(14, currentLevel + 1);
-        if (nextLevel !== currentLevel) map.setLevel(nextLevel);
-        pinchLastDistance = distance;
+        if (nextLevel !== currentLevel) {
+          map.setLevel(nextLevel, { animate: true });
+          pinchLastZoomAt = now;
+          pinchLastDistance = distance;
+        }
       }
       return;
     }
@@ -359,15 +371,24 @@ function initMap() {
 
     // 손가락이 오른쪽으로 움직이면 지도 내용도 오른쪽으로 움직이도록
     // 새 중심점을 '원래 중심점 - 손가락 이동량'으로 계산한다.
-    const projection = map.getProjection();
-    const rect = container.getBoundingClientRect();
-    const startPoint = dragStartCenterPoint;
-    const desiredPoint = new kakao.maps.Point(
-      startPoint.x - (totalDx * TOUCH_DRAG_SENSITIVITY),
-      startPoint.y - (totalDy * TOUCH_DRAG_SENSITIVITY)
-    );
-    const desiredCenter = projection.coordsFromContainerPoint(desiredPoint);
-    map.setCenter(desiredCenter);
+    // 터치 이벤트마다 바로 setCenter()를 호출하면 기기 성능에 따라 프레임 드랍이 생길 수 있다.
+    // 최신 손가락 위치만 저장하고 한 프레임에 한 번만 지도를 갱신한다.
+    latestDragDx = totalDx;
+    latestDragDy = totalDy;
+    if (dragRaf === null) {
+      dragRaf = requestAnimationFrame(() => {
+        dragRaf = null;
+        if (!touchDragging || touchLongPressTriggered || !dragStartCenterPoint) return;
+        const projection = map.getProjection();
+        const startPoint = dragStartCenterPoint;
+        const desiredPoint = new kakao.maps.Point(
+          startPoint.x - (latestDragDx * TOUCH_DRAG_SENSITIVITY),
+          startPoint.y - (latestDragDy * TOUCH_DRAG_SENSITIVITY)
+        );
+        const desiredCenter = projection.coordsFromContainerPoint(desiredPoint);
+        map.setCenter(desiredCenter);
+      });
+    }
   }, { passive: false });
 
   container.addEventListener("touchend", (e) => {
@@ -380,6 +401,9 @@ function initMap() {
     clearLongPressTimer();
     touchSequenceActive = false;
     touchDragging = false;
+    if (dragRaf !== null) { cancelAnimationFrame(dragRaf); dragRaf = null; }
+    latestDragDx = 0;
+    latestDragDy = 0;
     dragStartTouch = null;
     dragStartCenterPoint = null;
     pinchStartDistance = null;
@@ -402,6 +426,9 @@ function initMap() {
     touchSequenceActive = false;
     touchLongPressTriggered = false;
     touchDragging = false;
+    if (dragRaf !== null) { cancelAnimationFrame(dragRaf); dragRaf = null; }
+    latestDragDx = 0;
+    latestDragDy = 0;
     dragStartTouch = null;
     dragStartCenterPoint = null;
     pinchStartDistance = null;
