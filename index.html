@@ -10,7 +10,7 @@
 <div class="app">
 
   <!-- 왼쪽(모바일에서는 위쪽): 검색 / 결과 -->
-  <div class="side-panel">
+  <div class="side-panel" id="sidePanel">
 
     <!-- 주소 검색 -->
     <div class="search-bar">
@@ -22,18 +22,31 @@
             <path fill="currentColor" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
           </svg>
         </button>
+        <div id="suggestList" class="suggest-list" hidden></div>
       </div>
       <button id="searchBtn">검색</button>
       <button id="resetBtn" class="reset-btn">초기화</button>
     </div>
 
     <!-- 검색 결과 -->
-    <div class="result-header">
-      <span id="resultTitle">검색 결과</span>
-      <span class="result-count-badge" id="alleyCountBadge">골목형상점가 0곳</span>
-    </div>
-    <div class="result-list" id="resultList">
-      <div class="result-empty">골목형상점가 데이터를 불러오는 중입니다…</div>
+    <div class="result-section" id="resultSection">
+      <div class="result-header">
+        <span id="resultTitle">검색 결과</span>
+        <span class="result-count-badge" id="alleyCountBadge">골목형상점가 0곳</span>
+        <!-- 가로(PC) 레이아웃용: 오른쪽에 접기 -->
+        <button type="button" class="panel-toggle panel-toggle--side" id="panelToggleSide" aria-expanded="true" title="목록 접기/펼치기">
+          <span class="panel-toggle-icon" aria-hidden="true">◀</span>
+          <span class="panel-toggle-text">접기</span>
+        </button>
+      </div>
+      <div class="result-list" id="resultList">
+        <div class="result-empty">골목형상점가 데이터를 불러오는 중입니다…</div>
+      </div>
+      <!-- 세로(모바일) 레이아웃용: 맨 아래 접기 -->
+      <button type="button" class="panel-toggle panel-toggle--bottom" id="panelToggleBottom" aria-expanded="true" title="목록 접기/펼치기">
+        <span class="panel-toggle-icon" aria-hidden="true">▲</span>
+        <span class="panel-toggle-text">접기</span>
+      </button>
     </div>
   </div>
 
@@ -45,12 +58,11 @@
 
     <!-- 지도를 볼 기준 (유형별 클릭 필터) -->
     <div class="view-criteria">
-      <div class="vc-title">지도 표시 기준 <span class="vc-title-note">(유형 버튼으로 켜고 끌 수 있고, 라벨 클릭 시 그 구역만 진하게 강조됩니다)</span></div>
+      <div class="vc-title">지도 표시 기준</div>
       <div class="vc-options" id="typeFilterOptions">
         <button type="button" class="type-chip active" data-type="전통시장" style="--chip-color:#f5c518">전통시장</button>
         <button type="button" class="type-chip active" data-type="상점가" style="--chip-color:#3fae5a">상점가</button>
         <button type="button" class="type-chip active" data-type="골목형상점가" style="--chip-color:#3b82f6">골목형상점가</button>
-        <span class="vc-legend"><i class="vc-swatch" style="background:#e02424"></i>검색된 특정 주소</span>
       </div>
     </div>
   </div>

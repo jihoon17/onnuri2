@@ -18,29 +18,93 @@ html, body {
   font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
   background: var(--bg);
   color: var(--ink);
+  height: 100%;
+  overflow: hidden; /* 핸드폰 한 화면 안에 고정, 페이지 스크롤 없음 */
 }
 
 /* ---------- 기본(모바일): 위아래 1단 ---------- */
 .app {
   max-width: 640px;
   margin: 0 auto;
-  min-height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
   background: var(--white);
   display: flex;
   flex-direction: column;
   box-shadow: 0 0 24px rgba(0,0,0,0.06);
+  overflow: hidden;
 }
 
 .side-panel {
   display: flex;
   flex-direction: column;
+  flex: 0 0 auto;
+  max-height: 42%;
+  min-height: 0;
 }
 
 .map-panel {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+}
+
+.result-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+/* 접기 버튼 공통 */
+.panel-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 8px 12px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.panel-toggle:hover {
+  background: #d9e6f2;
+}
+.panel-toggle-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* 모바일: 맨 아래 접기 / PC용 사이드 버튼은 숨김 */
+.panel-toggle--bottom {
+  width: 100%;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.panel-toggle--side {
+  display: none;
+}
+
+/* 목록 접힌 상태 (모바일) */
+.side-panel.is-collapsed {
+  max-height: none;
+}
+.side-panel.is-collapsed .result-list {
+  display: none;
+}
+.side-panel.is-collapsed .result-header {
+  display: none;
+}
+.side-panel.is-collapsed .panel-toggle--bottom .panel-toggle-icon {
+  transform: rotate(180deg);
+}
+.side-panel.is-collapsed .panel-toggle--bottom .panel-toggle-text {
+  /* JS에서 텍스트도 바꿈 */
 }
 
 /* 검색 영역 */
@@ -149,11 +213,18 @@ html, body {
   padding: 10px 14px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   font-weight: 700;
   font-size: 15px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex: 0 0 auto;
+}
+.result-header .result-count-badge {
+  margin-left: 0;
+}
+.result-header .panel-toggle--side {
+  margin-left: auto;
 }
 .result-count-badge {
   background: rgba(255,255,255,0.18);
@@ -165,11 +236,14 @@ html, body {
   white-space: nowrap;
 }
 .result-list {
-  max-height: 160px;
+  max-height: 140px;
   overflow-y: auto;
   background: var(--primary-light);
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
   font-size: 13.5px;
+  flex: 1 1 auto;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
 }
 .result-item {
   padding: 9px 16px;
@@ -311,13 +385,13 @@ html, body {
 /* 지도 영역 — 세로 폭을 줄여 지도 표시 기준이 스크롤 없이 한눈에 보이도록 */
 .map-wrap {
   position: relative;
-  flex: 1;
-  min-height: 380px;
+  flex: 1 1 auto;
+  min-height: 0; /* 한 화면 안에 맞춤 (스크롤 방지) */
 }
 #map {
   width: 100%;
   height: 100%;
-  min-height: 380px;
+  min-height: 0;
   background: #dfe7ee;
   /* 카카오맵 기본 터치(드래그·핀치줌) + 라벨 탭 허용 */
   touch-action: manipulation;
@@ -611,7 +685,9 @@ html, body {
     align-items: center;
     justify-content: center;
     min-height: 100vh;
+    height: 100vh;
     padding: 16px;
+    overflow: hidden;
   }
 
   .app {
@@ -627,13 +703,71 @@ html, body {
   .side-panel {
     flex: 0 0 340px;
     max-width: 340px;
+    max-height: none;
+    height: 100%;
     border-right: 1px solid var(--border);
-    overflow-y: auto;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .result-section {
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .result-list {
     max-height: none;
     flex: 1;
+  }
+
+  /* PC: 아래 접기 숨기고 오른쪽 접기 표시 */
+  .panel-toggle--bottom {
+    display: none;
+  }
+  .panel-toggle--side {
+    display: inline-flex;
+    margin-left: auto;
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    font-size: 12px;
+  }
+  .panel-toggle--side:hover {
+    background: rgba(255,255,255,0.28);
+  }
+
+  /* 접힌 상태: 사이드 패널을 얇게 */
+  .side-panel.is-collapsed {
+    flex: 0 0 44px;
+    max-width: 44px;
+    min-width: 44px;
+  }
+  .side-panel.is-collapsed .search-bar,
+  .side-panel.is-collapsed .result-header > span,
+  .side-panel.is-collapsed .result-list {
+    display: none;
+  }
+  .side-panel.is-collapsed .result-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 12px 4px;
+    height: 100%;
+  }
+  .side-panel.is-collapsed .panel-toggle--side {
+    display: inline-flex;
+    flex-direction: column;
+    writing-mode: vertical-rl;
+    margin: 0;
+    padding: 12px 6px;
+    gap: 8px;
+  }
+  .side-panel.is-collapsed .panel-toggle--side .panel-toggle-icon {
+    transform: rotate(180deg);
+    writing-mode: horizontal-tb;
   }
 
   .map-panel {
@@ -651,7 +785,7 @@ html, body {
 }
 
 @media (min-width: 1280px) {
-  .side-panel {
+  .side-panel:not(.is-collapsed) {
     flex-basis: 380px;
     max-width: 380px;
   }

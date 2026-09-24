@@ -1897,6 +1897,40 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") handleSearch();
 });
 
+/* -------- 결과 목록 접기/펼치기 (모바일 하단 · PC 오른쪽) -------- */
+(function setupPanelCollapse() {
+  const sidePanel = document.getElementById("sidePanel");
+  const btnBottom = document.getElementById("panelToggleBottom");
+  const btnSide = document.getElementById("panelToggleSide");
+  if (!sidePanel) return;
+
+  function setCollapsed(collapsed) {
+    sidePanel.classList.toggle("is-collapsed", collapsed);
+    [btnBottom, btnSide].forEach((btn) => {
+      if (!btn) return;
+      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      const icon = btn.querySelector(".panel-toggle-icon");
+      const text = btn.querySelector(".panel-toggle-text");
+      if (text) text.textContent = collapsed ? "펼치기" : "접기";
+      // 모바일 하단: ▲ 접기 / ▼ 펼치기  |  PC: ◀ 접기 / ▶ 펼치기
+      if (icon) {
+        if (btn === btnBottom) icon.textContent = collapsed ? "▼" : "▲";
+        else icon.textContent = collapsed ? "▶" : "◀";
+      }
+    });
+    // 레이아웃 변경 후 지도 크기 재계산
+    if (map && typeof map.relayout === "function") {
+      setTimeout(() => {
+        try { map.relayout(); } catch (_) {}
+      }, 50);
+    }
+  }
+
+  const toggle = () => setCollapsed(!sidePanel.classList.contains("is-collapsed"));
+  if (btnBottom) btnBottom.addEventListener("click", toggle);
+  if (btnSide) btnSide.addEventListener("click", toggle);
+})();
+
 /* -------- 초기화 버튼: 사이트 첫 진입 상태로 복귀 -------- */
 function resetToInitialView() {
   document.getElementById("searchInput").value = "";
