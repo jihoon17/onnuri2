@@ -220,14 +220,13 @@ function initMap() {
   let dragStartCenterPoint = null;
   let dragStartTouch = null;
   let pinchStartDistance = null;
-  let pinchStartLevel = null;
-  let pinchLastLevel = null;
+  let pinchLastDistance = null;
 
   const LONG_PRESS_MS = 500;
   const MOVE_CANCEL_PX = 10;
   const SYNTHETIC_CLICK_GUARD_MS = 900;
   // 손가락 이동 1px을 지도에는 더 작게 반영해 태블릿 드래그 속도를 자연스럽게 조정
-  const TOUCH_DRAG_SENSITIVITY = 0.12;
+  const TOUCH_DRAG_SENSITIVITY = 0.04;
 
   // 우클릭(PC)
   container.addEventListener("contextmenu", (e) => {
@@ -283,8 +282,7 @@ function initMap() {
       const a = e.touches[0];
       const b = e.touches[1];
       pinchStartDistance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
-      pinchStartLevel = map.getLevel();
-      pinchLastLevel = pinchStartLevel;
+      pinchLastDistance = pinchStartDistance;
       e.preventDefault();
       return;
     }
@@ -295,8 +293,7 @@ function initMap() {
       touchLongPressTriggered = false;
       touchDragging = false;
       pinchStartDistance = null;
-      pinchStartLevel = null;
-      pinchLastLevel = null;
+      pinchLastDistance = null;
       return;
     }
 
@@ -326,20 +323,21 @@ function initMap() {
   }, { passive: false });
 
   container.addEventListener("touchmove", (e) => {
-    if (e.touches.length >= 2 && pinchStartDistance) {
+    if (e.touches.length >= 2 && pinchStartDistance !== null) {
       e.preventDefault();
       const a = e.touches[0];
       const b = e.touches[1];
       const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
-      if (distance < 1) return;
-      // 두 손가락 간격이 약 25% 변할 때마다 한 단계씩 확대/축소
-      const ratio = distance / pinchStartDistance;
-      const delta = Math.log(ratio) / Math.log(1.25);
-      let level = Math.round(pinchStartLevel - delta);
-      level = Math.max(1, Math.min(14, level));
-      if (level !== pinchLastLevel) {
-        map.setLevel(level);
-        pinchLastLevel = level;
+      if (pinchLastDistance === null) pinchLastDistance = distance;
+      const change = distance - pinchLastDistance;
+      // 손가락 간격이 약 18px 변할 때마다 한 단계씩 확대/축소
+      if (Math.abs(change) >= 18) {
+        const currentLevel = map.getLevel();
+        const nextLevel = change > 0
+          ? Math.max(1, currentLevel - 1)
+          : Math.min(14, currentLevel + 1);
+        if (nextLevel !== currentLevel) map.setLevel(nextLevel);
+        pinchLastDistance = distance;
       }
       return;
     }
@@ -375,8 +373,7 @@ function initMap() {
   container.addEventListener("touchend", (e) => {
     if (e.touches.length >= 1 && pinchStartDistance) {
       pinchStartDistance = null;
-      pinchStartLevel = null;
-      pinchLastLevel = null;
+      pinchLastDistance = null;
       return;
     }
     const wasLongPress = touchLongPressTriggered;
@@ -386,8 +383,7 @@ function initMap() {
     dragStartTouch = null;
     dragStartCenterPoint = null;
     pinchStartDistance = null;
-    pinchStartLevel = null;
-    pinchLastLevel = null;
+    pinchLastDistance = null;
 
     if (wasLongPress) {
       ignoreClickUntil = Math.max(ignoreClickUntil, Date.now() + SYNTHETIC_CLICK_GUARD_MS);
@@ -402,16 +398,14 @@ function initMap() {
   container.addEventListener("touchcancel", () => {
     clearLongPressTimer();
     pinchStartDistance = null;
-    pinchStartLevel = null;
-    pinchLastLevel = null;
+    pinchLastDistance = null;
     touchSequenceActive = false;
     touchLongPressTriggered = false;
     touchDragging = false;
     dragStartTouch = null;
     dragStartCenterPoint = null;
     pinchStartDistance = null;
-    pinchStartLevel = null;
-    pinchLastLevel = null;
+    pinchLastDistance = null;
   }, { passive: false });
 
 }
