@@ -225,14 +225,15 @@ function initMap() {
   let dragRaf = null;
   let latestDragDx = 0;
   let latestDragDy = 0;
+  let nativeDragDisabledForTouch = false;
 
   const LONG_PRESS_MS = 500;
   const MOVE_CANCEL_PX = 10;
   const SYNTHETIC_CLICK_GUARD_MS = 900;
   // 손가락 이동 1px을 지도에는 더 작게 반영해 태블릿 드래그 속도를 자연스럽게 조정
   const TOUCH_DRAG_SENSITIVITY = 0.08;
-  const PINCH_ZOOM_THRESHOLD_PX = 120;
-  const PINCH_ZOOM_COOLDOWN_MS = 220;
+  const PINCH_ZOOM_THRESHOLD_PX = 180;
+  const PINCH_ZOOM_COOLDOWN_MS = 320;
 
   // 우클릭(PC)
   container.addEventListener("contextmenu", (e) => {
@@ -281,6 +282,10 @@ function initMap() {
       return;
     }
     if (e.touches.length >= 2) {
+      if (map && !nativeDragDisabledForTouch) {
+        map.setDraggable(false);
+        nativeDragDisabledForTouch = true;
+      }
       clearLongPressTimer();
       touchSequenceActive = false;
       touchLongPressTriggered = false;
@@ -302,6 +307,13 @@ function initMap() {
       pinchStartDistance = null;
       pinchLastDistance = null;
       return;
+    }
+
+    // 카카오맵 기본 드래그/관성을 끄고 이 코드의 수동 이동만 사용한다.
+    // 터치가 끝나면 다시 켜서 PC 마우스 드래그에는 영향을 주지 않는다.
+    if (map && !nativeDragDisabledForTouch) {
+      map.setDraggable(false);
+      nativeDragDisabledForTouch = true;
     }
 
     e.preventDefault();
@@ -346,7 +358,7 @@ function initMap() {
           ? Math.max(1, currentLevel - 1)
           : Math.min(14, currentLevel + 1);
         if (nextLevel !== currentLevel) {
-          map.setLevel(nextLevel, { animate: true });
+          map.setLevel(nextLevel);
           pinchLastZoomAt = now;
           pinchLastDistance = distance;
         }
@@ -385,7 +397,12 @@ function initMap() {
           startPoint.x - (latestDragDx * TOUCH_DRAG_SENSITIVITY),
           startPoint.y - (latestDragDy * TOUCH_DRAG_SENSITIVITY)
         );
+        // 아주 작은 변화는 버려 불필요한 setCenter 호출을 줄인다.
+        const dx = latestDragDx * TOUCH_DRAG_SENSITIVITY;
+        const dy = latestDragDy * TOUCH_DRAG_SENSITIVITY;
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
         const desiredCenter = projection.coordsFromContainerPoint(desiredPoint);
+        // 애니메이션 없이 즉시 이동해 관성/추가 프레임을 만들지 않는다.
         map.setCenter(desiredCenter);
       });
     }
@@ -393,11 +410,25 @@ function initMap() {
 
   container.addEventListener("touchend", (e) => {
     if (e.touches.length >= 1 && pinchStartDistance) {
+      // 두 손가락 중 하나가 올라가면 핀치만 종료하고, 남은 한 손가락은
+      // 새 드래그의 시작점으로 잡아 갑작스러운 점프를 막는다.
       pinchStartDistance = null;
       pinchLastDistance = null;
+      const t = e.touches[0];
+      dragStartTouch = { x: t.clientX, y: t.clientY };
+      const projection = map.getProjection();
+      const centerPoint = projection.containerPointFromCoords(map.getCenter());
+      dragStartCenterPoint = { x: centerPoint.x, y: centerPoint.y };
+      touchSequenceActive = true;
+      touchDragging = false;
+      clearLongPressTimer();
       return;
     }
     const wasLongPress = touchLongPressTriggered;
+    if (map && nativeDragDisabledForTouch) {
+      map.setDraggable(true);
+      nativeDragDisabledForTouch = false;
+    }
     clearLongPressTimer();
     touchSequenceActive = false;
     touchDragging = false;
@@ -420,6 +451,10 @@ function initMap() {
   }, { passive: false });
 
   container.addEventListener("touchcancel", () => {
+    if (map && nativeDragDisabledForTouch) {
+      map.setDraggable(true);
+      nativeDragDisabledForTouch = false;
+    }
     clearLongPressTimer();
     pinchStartDistance = null;
     pinchLastDistance = null;
