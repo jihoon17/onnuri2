@@ -204,10 +204,10 @@ function initMap() {
     return map.getProjection().coordsFromContainerPoint(new kakao.maps.Point(x, y));
   }
 
-  // 우클릭 직후 브라우저가 보내는 가짜 click 을 무시하기 위한 타임스탬프
+  // 우클릭/롱프레스 직후 가짜 click 무시
   let ignoreClickUntil = 0;
 
-  // 우클릭(PC) - 카카오맵 rightclick 이벤트 대신 표준 contextmenu 이벤트를 직접 사용
+  // 우클릭(마우스) + 일부 패드에서 길게 누르기 시 contextmenu
   container.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     ignoreClickUntil = Date.now() + 400;
@@ -221,7 +221,7 @@ function initMap() {
     handleMapClick(mouseEvent.latLng);
   });
 
-  // DOM 클릭 백업: 카카오 오버레이가 이벤트를 삼켜도 좌표로 직접 판별해 제거
+  // DOM 클릭 백업
   container.addEventListener("click", (e) => {
     if (e.button !== 0) return;
     if (Date.now() < ignoreClickUntil) return;
@@ -229,34 +229,87 @@ function initMap() {
     handleMapClick(latlng);
   });
 
-  // 꾹 누르기(모바일) - 터치 길게 누르기 직접 구현 (PC와 동일한 좌표 변환 함수 사용)
+  // 패드/터치/마우스 공통: Pointer Events 기반 길게 누르기
+  // (아이패드가 데스크톱으로 인식돼도 터치·펜·마우스 모두 동작)
   let longPressTimer = null;
   let longPressStartXY = null;
+  let longPressPointerId = null;
 
+  const clearLongPress = () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    longPressStartXY = null;
+    longPressPointerId = null;
+  };
+
+  container.addEventListener("pointerdown", (e) => {
+    // 마우스 오른쪽 버튼은 contextmenu에서 처리
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    // 마우스 좌클릭 롱프레스도 허용 (패드에 연결된 마우스/트랙패드 포함)
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+
+    longPressStartXY = { x: e.clientX, y: e.clientY };
+    longPressPointerId = e.pointerId;
+
+    longPressTimer = setTimeout(() => {
+      ignoreClickUntil = Date.now() + 500;
+      try { container.setPointerCapture(e.pointerId); } catch (_) {}
+      const latlng = containerPointToLatLng(e.clientX, e.clientY);
+      handleMapPick(latlng);
+      clearLongPress();
+    }, 550);
+  });
+
+  container.addEventListener("pointermove", (e) => {
+    if (longPressPointerId !== e.pointerId || !longPressStartXY) return;
+    const moved = Math.abs(e.clientX - longPressStartXY.x) + Math.abs(e.clientY - longPressStartXY.y);
+    if (moved > 12) clearLongPress();
+  });
+
+  container.addEventListener("pointerup", clearLongPress);
+  container.addEventListener("pointercancel", clearLongPress);
+  container.addEventListener("pointerleave", (e) => {
+    if (longPressPointerId === e.pointerId) clearLongPress();
+  });
+
+  // 구형 브라우저/일부 웹뷰 대비 터치 롱프레스 백업
+  let touchLongPressTimer = null;
+  let touchStartXY = null;
   container.addEventListener("touchstart", (e) => {
     if (e.touches.length !== 1) return;
     const touch = e.touches[0];
-    longPressStartXY = { x: touch.clientX, y: touch.clientY };
-
-    longPressTimer = setTimeout(() => {
+    touchStartXY = { x: touch.clientX, y: touch.clientY };
+    touchLongPressTimer = setTimeout(() => {
       ignoreClickUntil = Date.now() + 500;
       const latlng = containerPointToLatLng(touch.clientX, touch.clientY);
       handleMapPick(latlng);
     }, 550);
   }, { passive: true });
 
-  const cancelLongPress = (e) => {
-    if (longPressTimer && longPressStartXY && e.changedTouches && e.changedTouches[0]) {
+  const cancelTouchLongPress = (e) => {
+    if (touchLongPressTimer && touchStartXY && e.changedTouches && e.changedTouches[0]) {
       const touch = e.changedTouches[0];
-      const moved = Math.abs(touch.clientX - longPressStartXY.x) + Math.abs(touch.clientY - longPressStartXY.y);
-      if (moved > 12) clearTimeout(longPressTimer);
-    } else if (longPressTimer) {
-      clearTimeout(longPressTimer);
+      const moved = Math.abs(touch.clientX - touchStartXY.x) + Math.abs(touch.clientY - touchStartXY.y);
+      if (moved > 12) {
+        clearTimeout(touchLongPressTimer);
+        touchLongPressTimer = null;
+      }
+    } else if (touchLongPressTimer) {
+      clearTimeout(touchLongPressTimer);
+      touchLongPressTimer = null;
     }
   };
-  container.addEventListener("touchmove", cancelLongPress, { passive: true });
-  container.addEventListener("touchend", () => clearTimeout(longPressTimer));
-  container.addEventListener("touchcancel", () => clearTimeout(longPressTimer));
+  container.addEventListener("touchmove", cancelTouchLongPress, { passive: true });
+  container.addEventListener("touchend", () => {
+    if (touchLongPressTimer) clearTimeout(touchLongPressTimer);
+    touchLongPressTimer = null;
+  });
+  container.addEventListener("touchcancel", () => {
+    if (touchLongPressTimer) clearTimeout(touchLongPressTimer);
+    touchLongPressTimer = null;
+  });
 }
 
 function showFallback(message) {
@@ -655,28 +708,26 @@ function openChecklist(marketName) {
   // CustomOverlay 자리는 쓰지 않음 (호환용 null)
   checklistOverlay = null;
 
-  // ---- 드래그 (헤더) ----
+  // ---- 드래그/리사이즈: 터치·마우스·펜 공통 (pointer events) ----
   let dragging = false;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
+  let resizing = false;
+  let startW = 0, startH = 0, startX = 0, startY = 0;
 
-  header.addEventListener("mousedown", (e) => {
+  header.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     if (e.target === closeBtn || closeBtn.contains(e.target)) return;
     dragging = true;
     const rect = panel.getBoundingClientRect();
-    const wrapRect = mapWrap.getBoundingClientRect();
     dragOffsetX = e.clientX - rect.left;
     dragOffsetY = e.clientY - rect.top;
     panel.classList.add("dragging");
+    try { header.setPointerCapture(e.pointerId); } catch (_) {}
     e.preventDefault();
   });
 
-  // ---- 리사이즈 ----
-  let resizing = false;
-  let startW = 0, startH = 0, startX = 0, startY = 0;
-
-  resizeHandle.addEventListener("mousedown", (e) => {
+  resizeHandle.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     resizing = true;
     startW = panel.offsetWidth;
@@ -684,6 +735,7 @@ function openChecklist(marketName) {
     startX = e.clientX;
     startY = e.clientY;
     panel.classList.add("resizing");
+    try { resizeHandle.setPointerCapture(e.pointerId); } catch (_) {}
     e.preventDefault();
     e.stopPropagation();
   });
@@ -715,14 +767,15 @@ function openChecklist(marketName) {
     }
   };
 
-  document.addEventListener("mousemove", onMove);
-  document.addEventListener("mouseup", onUp);
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp);
+  document.addEventListener("pointercancel", onUp);
 
-  // 패널이 제거될 때 리스너 정리
   const observer = new MutationObserver(() => {
     if (!document.getElementById("addrChecklistPanel")) {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
       observer.disconnect();
     }
   });
@@ -1411,6 +1464,9 @@ function renderResultList(parcels) {
 
   // 빨간 강조 대신 우클릭과 동일하게 핀+보라 라벨
   clearHighlights();
+  closeChecklist();
+  selectedMarket = null;
+  applyZoneColorState();
   clearPickedLocation();
 
   searchDetailItems = parcels.map(p => {
@@ -1698,6 +1754,20 @@ function geocodeFallbackSearch(query) {
   }
   geocoder.addressSearch(query, (result, status) => {
     if (status === kakao.maps.services.Status.OK && result[0]) {
+      const addrName = (result[0].address && result[0].address.address_name) || "";
+      const roadName = (result[0].road_address && result[0].road_address.address_name) || "";
+      const region1 = (result[0].address && result[0].address.region_1depth_name) ||
+        (result[0].road_address && result[0].road_address.region_1depth_name) || "";
+      const isSejong =
+        /세종/.test(region1) ||
+        /세종특별자치시|세종시/.test(addrName) ||
+        /세종특별자치시|세종시/.test(roadName);
+
+      if (!isSejong) {
+        showSearchNoResult("세종시 주소만 검색할 수 있습니다. 세종시 주소 또는 상호명을 입력해주세요.");
+        return;
+      }
+
       const coords = new kakao.maps.LatLng(result[0].y, result[0].x);
       const clickLat = coords.getLat();
       const clickLng = coords.getLng();
@@ -1706,13 +1776,12 @@ function geocodeFallbackSearch(query) {
       closeChecklist();
       selectedMarket = null;
       applyZoneColorState();
+      clearPickedLocation();
 
-      // 검색된 좌표가 등록된 구역/필지 안에 있는지 한 번 더 확인
       const parcel = findParcelAt(coords);
       const zone = findZoneAt(coords);
 
       if (zone || parcel) {
-        // 데이터 시트에는 주소 문자열이 없었지만 좌표상 구역 안인 경우
         const matchedParcels = parcel ? [parcel] : MAP_DATA.parcels.filter(p => p.market === zone.market);
         if (matchedParcels.length) {
           renderResultList(matchedParcels);
@@ -1731,21 +1800,19 @@ function geocodeFallbackSearch(query) {
         roadFull = result[0].road_address.address_name || "";
       }
 
-      const hitCoords = (parcel && parcel.coords) || (zone && zone.coords) || null;
-      const market = (parcel && parcel.market) || (zone && zone.market) || null;
+      const marketName = (parcel && parcel.market) || (zone && zone.market) || null;
+      const hit = (parcel && parcel.coords) || (zone && zone.coords) || null;
 
-      // 우클릭/꾹 누르기와 동일: 핀 + 보라 라벨, 확대
-      clearPickedLocation();
       addPickedPin({
         center: coords,
-        hitCoords,
+        hitCoords: hit,
         labelText,
         jibunFull,
         roadFull,
         parcelAddress: jibunFull || query,
-        market,
+        market: marketName,
         key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
-        showPurple: !!(hitCoords && market)
+        showPurple: !!(hit && marketName)
       });
       zoomToSearchPoint(coords);
     } else {
@@ -1814,8 +1881,156 @@ function handleSearch() {
 
 document.getElementById("searchBtn").addEventListener("click", handleSearch);
 document.getElementById("searchInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") handleSearch();
+  if (e.key === "Enter") {
+    e.preventDefault();
+    handleSearch();
+  }
 });
+// 모바일 키보드 '이동/검색' 후 포커스 아웃 보강
+document.getElementById("searchInput").addEventListener("search", () => {
+  dismissSearchKeyboard();
+});
+
+/* -------- 검색 자동완성 (시장명·골목형·주소 일부) -------- */
+(function setupAutocomplete() {
+  const input = document.getElementById("searchInput");
+  const list = document.getElementById("suggestList");
+  if (!input || !list) return;
+
+  let activeIndex = -1;
+  let currentItems = [];
+
+  function hideSuggest() {
+    list.hidden = true;
+    list.innerHTML = "";
+    activeIndex = -1;
+    currentItems = [];
+  }
+
+  function getSuggestions(q) {
+    if (!MAP_DATA.markets.length) return [];
+    const lower = q.toLowerCase();
+    const items = [];
+    const seen = new Set();
+
+    // 시장/상점가 명칭
+    MAP_DATA.markets.forEach((m) => {
+      const name = m.name || "";
+      const base = m.baseName || "";
+      const label = getMarketDisplayName(m.baseName);
+      if (
+        (name && name.toLowerCase().includes(lower)) ||
+        (base && base.toLowerCase().includes(lower)) ||
+        (label && label.toLowerCase().includes(lower))
+      ) {
+        const key = `m:${m.baseName}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          items.push({ text: label || name || base, type: m.type || "상점가" });
+        }
+      }
+    });
+
+    // 주소 일부 (최대 몇 개만)
+    let addrCount = 0;
+    for (let i = 0; i < MAP_DATA.parcels.length && addrCount < 8; i++) {
+      const p = MAP_DATA.parcels[i];
+      const addr = p.address || "";
+      const road = p.roadAddress || "";
+      if (
+        (addr && addr.toLowerCase().includes(lower)) ||
+        (road && road.toLowerCase().includes(lower))
+      ) {
+        const text = formatParcelAddress(p) || addr || road;
+        const key = `a:${text}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          items.push({ text, type: "주소" });
+          addrCount++;
+        }
+      }
+    }
+
+    return items.slice(0, 12);
+  }
+
+  function renderSuggest(items) {
+    currentItems = items;
+    activeIndex = -1;
+    if (!items.length) {
+      hideSuggest();
+      return;
+    }
+    list.innerHTML = items.map((it, idx) =>
+      `<button type="button" class="suggest-item" data-index="${idx}">
+        <span class="suggest-text">${it.text}</span>
+        <span class="suggest-type">${it.type}</span>
+      </button>`
+    ).join("");
+    list.hidden = false;
+
+    list.querySelectorAll(".suggest-item").forEach((btn) => {
+      btn.addEventListener("mousedown", (e) => {
+        // blur 전에 클릭 처리
+        e.preventDefault();
+        const idx = Number(btn.dataset.index);
+        const it = currentItems[idx];
+        if (!it) return;
+        input.value = it.text;
+        hideSuggest();
+        handleSearch();
+      });
+    });
+  }
+
+  input.addEventListener("input", () => {
+    const q = input.value.trim();
+    if (q.length < 1) {
+      hideSuggest();
+      return;
+    }
+    renderSuggest(getSuggestions(q));
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (list.hidden || !currentItems.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      activeIndex = (activeIndex + 1) % currentItems.length;
+      list.querySelectorAll(".suggest-item").forEach((el, idx) => {
+        el.classList.toggle("active", idx === activeIndex);
+      });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      activeIndex = (activeIndex - 1 + currentItems.length) % currentItems.length;
+      list.querySelectorAll(".suggest-item").forEach((el, idx) => {
+        el.classList.toggle("active", idx === activeIndex);
+      });
+    } else if (e.key === "Escape") {
+      hideSuggest();
+    } else if (e.key === "Enter" && activeIndex >= 0) {
+      e.preventDefault();
+      const it = currentItems[activeIndex];
+      if (it) {
+        input.value = it.text;
+        hideSuggest();
+        handleSearch();
+      }
+    }
+  });
+
+  input.addEventListener("blur", () => {
+    // 클릭 선택이 mousedown에서 처리되도록 약간 지연
+    setTimeout(hideSuggest, 150);
+  });
+
+  function hideSuggest() {
+    list.hidden = true;
+    list.innerHTML = "";
+    activeIndex = -1;
+    currentItems = [];
+  }
+})();
 
 /* -------- 초기화 버튼: 사이트 첫 진입 상태로 복귀 -------- */
 function resetToInitialView() {
