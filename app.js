@@ -226,7 +226,7 @@ function initMap() {
   const MOVE_CANCEL_PX = 10;
   const SYNTHETIC_CLICK_GUARD_MS = 900;
   // 손가락 이동 1px을 지도에는 더 작게 반영해 태블릿 드래그 속도를 자연스럽게 조정
-  const TOUCH_DRAG_SENSITIVITY = 0.04;
+  const TOUCH_DRAG_SENSITIVITY = 0.08;
 
   // 우클릭(PC)
   container.addEventListener("contextmenu", (e) => {
@@ -330,8 +330,8 @@ function initMap() {
       const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
       if (pinchLastDistance === null) pinchLastDistance = distance;
       const change = distance - pinchLastDistance;
-      // 손가락 간격이 약 18px 변할 때마다 한 단계씩 확대/축소
-      if (Math.abs(change) >= 18) {
+      // 손가락 간격이 약 60px 변할 때마다 한 단계씩 확대/축소
+      if (Math.abs(change) >= 60) {
         const currentLevel = map.getLevel();
         const nextLevel = change > 0
           ? Math.max(1, currentLevel - 1)
