@@ -45,6 +45,7 @@ let pickedAreaPolygons = {}; // areaKey -> { polygon, hitCoords, refCount } (같
 let searchDetailItems = []; // [{ latlng, jibunFull, roadFull, parcelAddress, market, parcelId }]
 let searchDetailIndex = 0;
 let selectedMarket = null;      // 라벨 클릭으로 선택된 상점가 (null이면 선택 없음)
+let ignoreClickUntil = 0;       // 롱프레스/라벨 탭 직후 지도 클릭·핀 중복 방지
 let checklistMarket = null;     // 체크리스트가 열려있는 상점가 (null이면 닫힘)
 let checklistOverlay = null;    // 체크리스트 흰색 박스(CustomOverlay)
 let checklistHighlights = {};   // parcelId -> kakao.maps.Polygon (체크리스트에서 켠 주소 강조)
@@ -207,14 +208,23 @@ function initMap() {
     return map.getProjection().coordsFromContainerPoint(new kakao.maps.Point(x, y));
   }
 
-  // 우클릭/롱프레스 직후 가짜 click 무시
-  let ignoreClickUntil = 0;
+  // 우클릭/롱프레스 직후 가짜 click 무시 (ignoreClickUntil 은 전역)
   let longPressTimer = null;
   let longPressStartXY = null;
-  let longPressFired = false;
+  let lastTouchAt = 0;       // 터치 직후 합성 mouse 이벤트 무시용
+  let lastPickAt = 0;        // 핀 중복 방지
+  let lastPickKey = "";
 
   const LONG_PRESS_MS = 550;
   const MOVE_CANCEL_PX = 12;
+  const PICK_DEDUP_MS = 900;
+
+  const isInteractiveTarget = (target) => {
+    if (!target || !target.closest) return false;
+    return !!target.closest(
+      ".market-label, button, a, input, label, .suggest-item, .addr-checklist-panel, .type-chip, .mic-btn"
+    );
+  };
 
   const clearLongPress = () => {
     if (longPressTimer !== null) {
@@ -224,14 +234,26 @@ function initMap() {
     longPressStartXY = null;
   };
 
-  // 우클릭(마우스)
+  // 같은 위치 짧은 시간에 핀이 두 번 찍히지 않도록
+  const safeMapPick = (latlng) => {
+    if (!latlng) return;
+    const key = `${latlng.getLat().toFixed(5)},${latlng.getLng().toFixed(5)}`;
+    const now = Date.now();
+    if (key === lastPickKey && now - lastPickAt < PICK_DEDUP_MS) return;
+    lastPickKey = key;
+    lastPickAt = now;
+    ignoreClickUntil = now + 700;
+    handleMapPick(latlng);
+  };
+
+  // 우클릭(마우스) — 터치 롱프레스 직후 브라우저 contextmenu 는 무시
   container.addEventListener("contextmenu", (e) => {
     e.preventDefault();
-    ignoreClickUntil = Date.now() + 500;
-    handleMapPick(containerPointToLatLng(e.clientX, e.clientY));
+    if (Date.now() - lastTouchAt < 1200) return;
+    safeMapPick(containerPointToLatLng(e.clientX, e.clientY));
   });
 
-  // 일반 클릭: 핀 제거 등 (롱프레스 직후 합성 클릭은 무시)
+  // 일반 클릭: 핀 제거 (롱프레스/라벨 직후는 무시)
   kakao.maps.event.addListener(map, "click", (mouseEvent) => {
     if (Date.now() < ignoreClickUntil) return;
     handleMapClick(mouseEvent.latLng);
@@ -240,23 +262,17 @@ function initMap() {
   container.addEventListener("click", (e) => {
     if (Date.now() < ignoreClickUntil) return;
     if (e.button !== 0) return;
-    // 라벨/버튼 등 인터랙티브 요소 클릭은 가로채지 않음
-    if (e.target.closest && e.target.closest(".market-label, button, a, input, label, .suggest-item, .addr-checklist-panel")) {
-      return;
-    }
+    if (isInteractiveTarget(e.target)) return;
     handleMapClick(containerPointToLatLng(e.clientX, e.clientY));
   });
 
-  // 길게 누르기: preventDefault 없이 감지만 (라벨 탭·지도 드래그 방해 금지)
   const startLongPress = (clientX, clientY) => {
     clearLongPress();
-    longPressFired = false;
     longPressStartXY = { x: clientX, y: clientY };
     longPressTimer = setTimeout(() => {
       longPressTimer = null;
-      longPressFired = true;
-      ignoreClickUntil = Date.now() + 600;
-      handleMapPick(containerPointToLatLng(clientX, clientY));
+      longPressStartXY = null;
+      safeMapPick(containerPointToLatLng(clientX, clientY));
     }, LONG_PRESS_MS);
   };
 
@@ -266,9 +282,14 @@ function initMap() {
     if (moved > MOVE_CANCEL_PX) clearLongPress();
   };
 
-  // 터치 (패드/폰) — passive: true 로 카카오맵·라벨 터치 통과
+  // 터치 — 라벨 위에서는 롱프레스 시작하지 않음 (강조만)
   container.addEventListener("touchstart", (e) => {
+    lastTouchAt = Date.now();
     if (e.touches.length !== 1) {
+      clearLongPress();
+      return;
+    }
+    if (isInteractiveTarget(e.target)) {
       clearLongPress();
       return;
     }
@@ -282,27 +303,17 @@ function initMap() {
     moveLongPress(t.clientX, t.clientY);
   }, { passive: true });
 
-  container.addEventListener("touchend", () => {
-    clearLongPress();
-    if (longPressFired) {
-      ignoreClickUntil = Math.max(ignoreClickUntil, Date.now() + 500);
-      longPressFired = false;
-    }
-  }, { passive: true });
+  container.addEventListener("touchend", () => clearLongPress(), { passive: true });
+  container.addEventListener("touchcancel", () => clearLongPress(), { passive: true });
 
-  container.addEventListener("touchcancel", () => {
-    clearLongPress();
-    longPressFired = false;
-  }, { passive: true });
-
-  // 마우스 좌클릭 길게 누르기 (패드에 마우스 연결 시)
+  // 마우스 길게 누르기 — 터치 직후 합성 mousedown 은 무시
   container.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
+    if (Date.now() - lastTouchAt < 800) return;
+    if (isInteractiveTarget(e.target)) return;
     startLongPress(e.clientX, e.clientY);
   });
-  container.addEventListener("mousemove", (e) => {
-    moveLongPress(e.clientX, e.clientY);
-  });
+  container.addEventListener("mousemove", (e) => moveLongPress(e.clientX, e.clientY));
   container.addEventListener("mouseup", () => clearLongPress());
   container.addEventListener("mouseleave", () => clearLongPress());
 }
@@ -852,16 +863,26 @@ function drawMarketLabels() {
     // 터치·마우스 모두 동작 (짧은 시간에 중복 호출 방지)
     let lastActivateAt = 0;
     const onLabelActivate = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       const now = Date.now();
-      if (now - lastActivateAt < 350) return;
+      if (now - lastActivateAt < 400) return;
       lastActivateAt = now;
+      // 지도 롱프레스/클릭이 이어서 핀을 찍지 않도록
+      ignoreClickUntil = now + 700;
       selectMarketByLabel(m.baseName);
     };
+    // 라벨 위에서 터치가 시작되면 지도 롱프레스 취소
+    content.addEventListener("touchstart", (e) => {
+      e.stopPropagation();
+    }, { passive: true });
+    content.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+    });
     content.addEventListener("click", onLabelActivate);
     content.addEventListener("touchend", (e) => {
-      // iPad 등에서 click이 늦게 오거나 안 오는 경우 대비
       onLabelActivate(e);
     }, { passive: false });
     content.addEventListener("dblclick", (e) => {
