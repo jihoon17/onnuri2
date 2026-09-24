@@ -377,12 +377,14 @@ function initMap() {
       return;
     }
 
-    // ----- 한 손가락: 지도 이동 -----
+    // ----- 한 손가락: 지도 이동 (감도 0.5) -----
     if (e.touches.length === 1 && panStartTouch && panStartCenterPt) {
       const t = e.touches[0];
-      const dx = t.clientX - panStartTouch.x;
-      const dy = t.clientY - panStartTouch.y;
-      const dist = Math.hypot(dx, dy);
+      const rawDx = t.clientX - panStartTouch.x;
+      const rawDy = t.clientY - panStartTouch.y;
+      const dist = Math.hypot(rawDx, rawDy);
+      const dx = rawDx * 0.5;
+      const dy = rawDy * 0.5;
 
       if (dist > MOVE_CANCEL_PX) {
         clearLongPress();
@@ -2092,7 +2094,8 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
   const knob = document.getElementById("mapJoystickKnob");
   if (!root || !knob) return;
 
-  const MAX_KNOB = 22; // 노브가 베이스 안에서 움직일 수 있는 최대 픽셀
+  // 노브 최대 이동량: 조이스틱 크기에 비례 (핸드폰/패드·PC 자동)
+  const getMaxKnob = () => Math.max(12, root.offsetWidth / 2 - 16);
   const PAN_SPEED = 4.5; // 프레임당 이동 강도 (레벨에 따라 보정)
 
   let vecX = 0; // -1 ~ 1
@@ -2111,7 +2114,8 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     }
     vecX = nx;
     vecY = ny;
-    knob.style.transform = `translate(${nx * MAX_KNOB}px, ${ny * MAX_KNOB}px)`;
+    const maxK = getMaxKnob();
+    knob.style.transform = `translate(${nx * maxK}px, ${ny * maxK}px)`;
     root.classList.toggle("is-active", Math.hypot(nx, ny) > 0.05);
   }
 

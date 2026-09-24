@@ -4,7 +4,83 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>상점가 위치 검색 지도</title>
-<link rel="stylesheet" href="style.css">
+<!-- v20260924c: 조이스틱·화살표·감도 수정본 (캐시 깨기용 버전) -->
+<link rel="stylesheet" href="style.css?v=20260924c">
+<style>
+  /* 캐시된 옛 CSS를 덮어쓰는 핵심 스타일 */
+  .panel-toggle {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 1px solid rgba(0,0,0,0.14) !important;
+    background: #fff !important;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.14) !important;
+    padding: 0 !important;
+    cursor: pointer !important;
+  }
+  .panel-toggle .panel-toggle-text { display: none !important; }
+  .panel-toggle--bottom {
+    width: 52px !important;
+    height: 30px !important;
+    margin: 0 auto !important;
+    border-radius: 12px 12px 0 0 !important;
+    border-bottom: none !important;
+  }
+  .side-panel.is-collapsed .panel-toggle--bottom {
+    border-radius: 0 0 12px 12px !important;
+    border: 1px solid rgba(0,0,0,0.14) !important;
+    border-top: none !important;
+  }
+  .side-panel.is-collapsed .result-list,
+  .side-panel.is-collapsed .result-header {
+    display: none !important;
+  }
+  .map-joystick {
+    position: absolute !important;
+    right: 12px !important;
+    bottom: 12px !important;
+    z-index: 40 !important;
+    width: 80px !important;
+    height: 80px !important;
+  }
+  @media (min-width: 600px) {
+    .map-joystick {
+      width: 160px !important;
+      height: 160px !important;
+      right: 18px !important;
+      bottom: 18px !important;
+    }
+    .panel-toggle--side {
+      display: inline-flex !important;
+      width: 30px !important;
+      height: 52px !important;
+      border-radius: 0 12px 12px 0 !important;
+      border-left: none !important;
+      margin-left: auto !important;
+    }
+    .side-panel.is-collapsed {
+      flex: 0 0 30px !important;
+      max-width: 30px !important;
+      min-width: 30px !important;
+      background: transparent !important;
+    }
+    .side-panel.is-collapsed .search-bar,
+    .side-panel.is-collapsed .result-list,
+    .side-panel.is-collapsed .result-header > span,
+    .side-panel.is-collapsed .result-count-badge {
+      display: none !important;
+    }
+    .side-panel.is-collapsed .result-header {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      height: 100% !important;
+      background: transparent !important;
+      border: none !important;
+      padding: 0 !important;
+    }
+  }
+</style>
 </head>
 <body>
 <div class="app">
@@ -75,7 +151,7 @@
 
 <!-- 엑셀 파싱 라이브러리 (SheetJS) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<!-- 기능 로직 -->
-<script src="app.js"></script>
+<!-- 기능 로직 v20260924c -->
+<script src="app.js?v=20260924c"></script>
 </body>
 </html>

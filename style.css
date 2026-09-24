@@ -57,50 +57,50 @@ html, body {
   flex: 1 1 auto;
 }
 
-/* 접기 버튼 — 글자 없이 화살표만 (네이버맵 스타일 원형) */
+/* 접기 버튼 — 글자 없이 화살표만, 굴곡 칩 (네이버맵 스타일) */
 .panel-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(0,0,0,0.12);
   background: #fff;
   color: #333;
   cursor: pointer;
   padding: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
   box-shadow: 0 1px 4px rgba(0,0,0,0.12);
   transition: background 0.15s ease, box-shadow 0.15s ease;
   flex-shrink: 0;
 }
 .panel-toggle:hover {
-  background: #f5f7fa;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.16);
+  background: #fafafa;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.14);
 }
 .panel-toggle:active {
-  background: #eef2f6;
+  background: #f0f0f0;
 }
 .panel-toggle-icon {
   font-size: 14px;
   line-height: 1;
   font-weight: 700;
-  color: #444;
+  color: #555;
 }
 
-/* 모바일: 목록 아래 가운데 원형 화살표 */
+/* 모바일: 목록과 지도 사이 가운데 — 위쪽만 둥근 굴곡 칩 */
 .panel-toggle--bottom {
-  width: 40px;
-  height: 40px;
-  margin: 6px auto 8px;
-  border: 1px solid var(--border);
+  width: 48px;
+  height: 28px;
+  margin: 0 auto;
+  border-radius: 10px 10px 0 0;
+  border-bottom: none;
+  position: relative;
+  z-index: 5;
   background: #fff;
 }
 .panel-toggle--side {
   display: none;
 }
 
-/* 목록 접힌 상태 (모바일) */
+/* 목록 접힌 상태 (모바일): 목록·제목 숨기고 화살표 칩만 */
 .side-panel.is-collapsed {
   max-height: none;
 }
@@ -109,6 +109,17 @@ html, body {
 }
 .side-panel.is-collapsed .result-header {
   display: none;
+}
+.side-panel.is-collapsed .result-section {
+  background: transparent;
+  border: none;
+  flex: 0 0 auto;
+}
+.side-panel.is-collapsed .panel-toggle--bottom {
+  border-radius: 0 0 10px 10px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-top: none;
+  margin-top: 0;
 }
 
 /* 검색 영역 */
@@ -395,7 +406,7 @@ html, body {
   touch-action: none;
 }
 
-/* 지도 이동 조이스틱 (우측 하단, 지도/스카이뷰 버튼과 비슷한 크기) */
+/* 지도 이동 조이스틱 — 기본(핸드폰) 크기 / 패드·PC는 2배 */
 .map-joystick {
   position: absolute;
   right: 12px;
@@ -423,10 +434,10 @@ html, body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 32px;
-  height: 32px;
-  margin-left: -16px;
-  margin-top: -16px;
+  width: 44%;
+  height: 44%;
+  margin-left: -22%;
+  margin-top: -22%;
   border-radius: 50%;
   background: linear-gradient(180deg, #5a8ec4 0%, #3b6ea5 100%);
   border: 2px solid #fff;
@@ -439,6 +450,16 @@ html, body {
 }
 .map-joystick.is-active .map-joystick-base {
   background: rgba(255, 255, 255, 0.98);
+}
+
+/* 패드·PC: 조이스틱 반지름 약 2배 */
+@media (min-width: 600px) {
+  .map-joystick {
+    width: 144px;
+    height: 144px;
+    right: 16px;
+    bottom: 16px;
+  }
 }
 #map {
   width: 100%;
@@ -772,54 +793,68 @@ html, body {
     flex: 1;
   }
 
-  /* PC: 아래 접기 숨기고 오른쪽 원형 화살표만 */
+  /* PC: 아래 접기 숨기고, 오른쪽 가장자리 굴곡 화살표만 */
   .panel-toggle--bottom {
     display: none;
   }
   .panel-toggle--side {
     display: inline-flex;
     margin-left: auto;
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 48px;
     padding: 0;
-    border-radius: 50%;
-    border: 1px solid rgba(255,255,255,0.45);
-    background: rgba(255,255,255,0.95);
+    /* 오른쪽만 둥근 굴곡 칩 */
+    border-radius: 0 10px 10px 0;
+    border: 1px solid rgba(0,0,0,0.12);
+    border-left: none;
+    background: #fff;
     color: #333;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    box-shadow: 2px 1px 6px rgba(0,0,0,0.12);
   }
   .panel-toggle--side .panel-toggle-icon {
-    color: #333;
-    font-size: 13px;
+    color: #555;
+    font-size: 14px;
   }
   .panel-toggle--side:hover {
-    background: #fff;
+    background: #fafafa;
   }
 
-  /* 접힌 상태: 사이드 패널을 얇게 + 화살표만 */
+  /* 접힌 상태: 사이드 패널 거의 제거하고 중앙 높이의 화살표 칩만 */
   .side-panel.is-collapsed {
-    flex: 0 0 44px;
-    max-width: 44px;
-    min-width: 44px;
+    flex: 0 0 28px;
+    max-width: 28px;
+    min-width: 28px;
+    border-right: none;
+    background: transparent;
+    overflow: visible;
   }
   .side-panel.is-collapsed .search-bar,
+  .side-panel.is-collapsed .result-list,
   .side-panel.is-collapsed .result-header > span,
-  .side-panel.is-collapsed .result-list {
-    display: none;
+  .side-panel.is-collapsed .result-count-badge {
+    display: none !important;
+  }
+  .side-panel.is-collapsed .result-section {
+    height: 100%;
+    background: transparent;
   }
   .side-panel.is-collapsed .result-header {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start;
-    padding: 12px 4px;
+    justify-content: center;
+    padding: 0;
     height: 100%;
+    background: transparent;
+    border: none;
   }
   .side-panel.is-collapsed .panel-toggle--side {
     display: inline-flex;
     margin: 0;
-    width: 36px;
-    height: 36px;
+    width: 28px;
+    height: 56px;
+    border-radius: 0 12px 12px 0;
+    border-left: none;
   }
 
   .map-panel {
