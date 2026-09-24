@@ -311,6 +311,8 @@ function initMap() {
     );
 
     if (moved > MOVE_CANCEL_PX && !touchLongPressTriggered) {
+      // 이동이 시작되면 롱프레스만 취소하고, touchmove 자체는 막지 않는다.
+      // 따라서 카카오맵이 손가락 드래그를 그대로 받아 지도를 이동시킬 수 있다.
       clearLongPressTimer();
       touchSequenceActive = false;
       longPressStartXY = null;
