@@ -304,14 +304,13 @@ function initMap() {
     }, LONG_PRESS_MS);
   }, { passive: true });
 
-  // 태블릿에서는 CSS touch-action:none 때문에 브라우저/카카오맵의 기본
-  // 터치 드래그가 막힐 수 있으므로, 손가락 이동량을 직접 카카오맵에 전달한다.
+  // 손가락 이동은 카카오맵의 기본 터치 드래그에 맡긴다.
+  // 네이버 지도처럼 지도 엔진이 직접 패닝하도록 하고,
+  // 이 코드에서는 롱프레스 판정만 담당한다.
   container.addEventListener("touchmove", (e) => {
     if (!touchSequenceActive || !lastTouchXY || !e.touches.length) return;
 
     const touch = e.touches[0];
-    const dx = touch.clientX - lastTouchXY.x;
-    const dy = touch.clientY - lastTouchXY.y;
     const totalMoved = Math.hypot(
       touch.clientX - longPressStartXY.x,
       touch.clientY - longPressStartXY.y
@@ -320,16 +319,10 @@ function initMap() {
     if (totalMoved > MOVE_CANCEL_PX && !touchLongPressTriggered) {
       clearLongPressTimer();
       touchDragging = true;
-      // 손가락을 오른쪽/아래로 움직이면 지도 내용도 같은 방향으로 움직인다.
-      map.panBy(dx, dy);
-      e.preventDefault();
-    } else if (touchDragging) {
-      map.panBy(dx, dy);
-      e.preventDefault();
     }
 
     lastTouchXY = { x: touch.clientX, y: touch.clientY };
-  }, { passive: false });
+  }, { passive: true });
 
   container.addEventListener("touchend", () => {
     const wasLongPress = touchLongPressTriggered;
