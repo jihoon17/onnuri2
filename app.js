@@ -247,6 +247,9 @@ function initMap() {
   // 한 손가락 팬 (직전 좌표 대비 증분 — 미끄러짐 제거)
   let panActive = false;
   let panLastTouch = null; // {x, y} 직전 터치 위치
+  let touchPanPendingDx = 0;
+  let touchPanPendingDy = 0;
+  let touchPanRaf = null;
 
   // 두 손가락 핀치 줌 (rAF로 프레임 드랍 완화)
   let pinchActive = false;
@@ -265,8 +268,29 @@ function initMap() {
   // 기기별 손 드래그 감도 (빙판 느낌 제거 + 패드 더 낮게)
   function getTouchPanSensitivity() {
     const w = window.innerWidth || 400;
-    if (w >= 600) return 0.18; // 패드
-    return 0.28; // 핸드폰
+    if (w >= 600) return 1.0; // 패드: 손가락 이동과 지도 이동을 1:1에 가깝게
+    return 1.0; // 핸드폰: 손가락 이동과 지도 이동을 1:1에 가깝게
+  }
+
+  function flushTouchPan() {
+    touchPanRaf = null;
+    if (!map || !panActive) return;
+    const dx = touchPanPendingDx;
+    const dy = touchPanPendingDy;
+    touchPanPendingDx = 0;
+    touchPanPendingDy = 0;
+    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
+    try {
+      const proj = map.getProjection();
+      const center = map.getCenter();
+      const pt = proj.containerPointFromCoords(center);
+      const desired = new kakao.maps.Point(pt.x - dx, pt.y - dy);
+      map.setCenter(proj.coordsFromContainerPoint(desired));
+    } catch (_) {}
+  }
+
+  function scheduleTouchPan() {
+    if (touchPanRaf == null) touchPanRaf = requestAnimationFrame(flushTouchPan);
   }
 
   function flushPinchLevel() {
@@ -418,13 +442,9 @@ function initMap() {
         const dx = rawDx * sens;
         const dy = rawDy * sens;
         panLastTouch = { x: t.clientX, y: t.clientY };
-        try {
-          const proj = map.getProjection();
-          const center = map.getCenter();
-          const pt = proj.containerPointFromCoords(center);
-          const desired = new kakao.maps.Point(pt.x - dx, pt.y - dy);
-          map.setCenter(proj.coordsFromContainerPoint(desired));
-        } catch (_) {}
+        touchPanPendingDx += dx;
+        touchPanPendingDy += dy;
+        scheduleTouchPan();
       }
     }
   }, { passive: false });
@@ -453,6 +473,8 @@ function initMap() {
     pinchActive = false;
     panActive = false;
     panLastTouch = null;
+    touchPanPendingDx = 0;
+    touchPanPendingDy = 0;
   }, { passive: true });
 
   container.addEventListener("touchcancel", () => {
@@ -461,6 +483,8 @@ function initMap() {
     pinchActive = false;
     panActive = false;
     panLastTouch = null;
+    touchPanPendingDx = 0;
+    touchPanPendingDy = 0;
     lastMultiTouchAt = Date.now();
   }, { passive: true });
 
@@ -2114,7 +2138,10 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
   const basePanSpeed = 4.5;
   const getPanSpeed = () => {
     const desktop = window.matchMedia && window.matchMedia("(min-width: 960px)").matches;
-    return basePanSpeed * (desktop ? 1.5 : 1);
+    const mobile = window.matchMedia && window.matchMedia("(max-width: 599px)").matches;
+    if (desktop) return basePanSpeed * 2.7; // 기존 PC 속도의 1.8배
+    if (mobile) return basePanSpeed * 1.5; // 기존 핸드폰 속도의 1.5배
+    return basePanSpeed; // 패드 유지
   };
 
   let vecX = 0; // -1 ~ 1
