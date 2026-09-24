@@ -1,43 +1,65 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>카카오맵 태블릿 터치 진단</title>
-<style>
-*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:Arial,"Malgun Gothic",sans-serif}
-#map{position:absolute;inset:0;width:100%;height:100%;touch-action:auto;-webkit-user-select:none;user-select:none}
-#panel{position:fixed;z-index:9999;top:10px;left:10px;right:10px;max-width:520px;padding:12px 14px;background:rgba(255,255,255,.94);border:1px solid #bbb;border-radius:12px;box-shadow:0 3px 14px rgba(0,0,0,.15);font-size:14px;line-height:1.5}
-#status{font-weight:700;margin-bottom:5px}#log{font-size:12px;max-height:120px;overflow:auto;color:#333;white-space:pre-wrap}
-#close{float:right;border:0;background:#222;color:#fff;border-radius:7px;padding:5px 9px}
-</style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>상점가 위치 검색 지도</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="map"></div>
-<div id="panel"><button id="close">패널 숨기기</button><div id="status">지도 준비 중…</div><div id="log"></div></div>
-<script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=01a0f8272692845e09fe8d4c402e6317&autoload=false"></script>
-<script>
-kakao.maps.load(function(){
-  const mapEl=document.getElementById('map');
-  const status=document.getElementById('status');
-  const logEl=document.getElementById('log');
-  const map=new kakao.maps.Map(mapEl,{center:new kakao.maps.LatLng(36.479934,127.286740),level:4,draggable:true,scrollwheel:true,disableDoubleClickZoom:false});
-  map.setDraggable(true); map.setZoomable(true);
-  function log(s){logEl.textContent=(s+'\n'+logEl.textContent).slice(0,1500)}
-  function refresh(){status.textContent='draggable='+map.getDraggable()+' / zoomable='+map.getZoomable()}
-  refresh(); log('Kakao Map 생성 완료');
-  kakao.maps.event.addListener(map,'dragstart',()=>log('카카오 dragstart 발생'));
-  kakao.maps.event.addListener(map,'drag',()=>log('카카오 drag 발생'));
-  kakao.maps.event.addListener(map,'dragend',()=>log('카카오 dragend 발생'));
-  kakao.maps.event.addListener(map,'center_changed',()=>refresh());
-  ['pointerdown','pointermove','pointerup','touchstart','touchmove','touchend'].forEach(type=>{
-    mapEl.addEventListener(type,e=>{
-      const p=e.touches&&e.touches[0]||e;
-      log(type+' x='+(p.clientX??'')+' y='+(p.clientY??''));
-    },{capture:true,passive:true});
-  });
-  document.getElementById('close').onclick=()=>document.getElementById('panel').style.display='none';
-});
-</script>
+<div class="app">
+
+  <!-- 왼쪽(모바일에서는 위쪽): 검색 / 결과 -->
+  <div class="side-panel">
+
+    <!-- 주소 검색 -->
+    <div class="search-bar">
+      <div class="search-input-wrap">
+        <input id="searchInput" type="text" placeholder="주소·시장명·상호명 입력 (세종)" autocomplete="off" />
+        <button id="micBtn" class="mic-btn" type="button" title="음성으로 검색" aria-label="음성으로 검색">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path fill="currentColor" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+        </button>
+      </div>
+      <button id="searchBtn">검색</button>
+      <button id="resetBtn" class="reset-btn">초기화</button>
+    </div>
+
+    <!-- 검색 결과 -->
+    <div class="result-header">
+      <span id="resultTitle">검색 결과</span>
+      <span class="result-count-badge" id="alleyCountBadge">골목형상점가 0곳</span>
+    </div>
+    <div class="result-list" id="resultList">
+      <div class="result-empty">골목형상점가 데이터를 불러오는 중입니다…</div>
+    </div>
+  </div>
+
+  <!-- 오른쪽(모바일에서는 아래쪽): 지도 -->
+  <div class="map-panel">
+    <div class="map-wrap">
+      <div id="map"></div>
+    </div>
+
+    <!-- 지도를 볼 기준 (유형별 클릭 필터) -->
+    <div class="view-criteria">
+      <div class="vc-title">지도 표시 기준 <span class="vc-title-note">(유형 버튼으로 켜고 끌 수 있고, 라벨 클릭 시 그 구역만 진하게 강조됩니다)</span></div>
+      <div class="vc-options" id="typeFilterOptions">
+        <button type="button" class="type-chip active" data-type="전통시장" style="--chip-color:#f5c518">전통시장</button>
+        <button type="button" class="type-chip active" data-type="상점가" style="--chip-color:#3fae5a">상점가</button>
+        <button type="button" class="type-chip active" data-type="골목형상점가" style="--chip-color:#3b82f6">골목형상점가</button>
+        <span class="vc-legend"><i class="vc-swatch" style="background:#e02424"></i>검색된 특정 주소</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 엑셀 파싱 라이브러리 (SheetJS) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- 기능 로직 -->
+<script src="app.js"></script>
 </body>
 </html>
