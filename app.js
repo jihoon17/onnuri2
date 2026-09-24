@@ -221,19 +221,12 @@ function initMap() {
   let dragStartTouch = null;
   let pinchStartDistance = null;
   let pinchLastDistance = null;
-  let pinchLastZoomAt = 0;
-  let dragRaf = null;
-  let latestDragDx = 0;
-  let latestDragDy = 0;
-  let nativeDragDisabledForTouch = false;
 
   const LONG_PRESS_MS = 500;
   const MOVE_CANCEL_PX = 10;
   const SYNTHETIC_CLICK_GUARD_MS = 900;
   // 손가락 이동 1px을 지도에는 더 작게 반영해 태블릿 드래그 속도를 자연스럽게 조정
   const TOUCH_DRAG_SENSITIVITY = 0.08;
-  const PINCH_ZOOM_THRESHOLD_PX = 180;
-  const PINCH_ZOOM_COOLDOWN_MS = 320;
 
   // 우클릭(PC)
   container.addEventListener("contextmenu", (e) => {
@@ -282,10 +275,6 @@ function initMap() {
       return;
     }
     if (e.touches.length >= 2) {
-      if (map && !nativeDragDisabledForTouch) {
-        map.setDraggable(false);
-        nativeDragDisabledForTouch = true;
-      }
       clearLongPressTimer();
       touchSequenceActive = false;
       touchLongPressTriggered = false;
@@ -294,7 +283,6 @@ function initMap() {
       const b = e.touches[1];
       pinchStartDistance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
       pinchLastDistance = pinchStartDistance;
-      pinchLastZoomAt = performance.now();
       e.preventDefault();
       return;
     }
@@ -307,13 +295,6 @@ function initMap() {
       pinchStartDistance = null;
       pinchLastDistance = null;
       return;
-    }
-
-    // 카카오맵 기본 드래그/관성을 끄고 이 코드의 수동 이동만 사용한다.
-    // 터치가 끝나면 다시 켜서 PC 마우스 드래그에는 영향을 주지 않는다.
-    if (map && !nativeDragDisabledForTouch) {
-      map.setDraggable(false);
-      nativeDragDisabledForTouch = true;
     }
 
     e.preventDefault();
@@ -349,19 +330,14 @@ function initMap() {
       const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
       if (pinchLastDistance === null) pinchLastDistance = distance;
       const change = distance - pinchLastDistance;
-      // 손가락 간격이 충분히 변했을 때만 한 단계 이동하고, Kakao의 애니메이션을 사용해
-      // 확대/축소가 확 튀지 않도록 한다. 짧은 시간에 여러 단계가 연속 적용되지 않게 쿨다운도 둔다.
-      const now = performance.now();
-      if (Math.abs(change) >= PINCH_ZOOM_THRESHOLD_PX && now - pinchLastZoomAt >= PINCH_ZOOM_COOLDOWN_MS) {
+      // 손가락 간격이 약 55px 변할 때마다 한 단계씩 확대/축소
+      if (Math.abs(change) >= 55) {
         const currentLevel = map.getLevel();
         const nextLevel = change > 0
           ? Math.max(1, currentLevel - 1)
           : Math.min(14, currentLevel + 1);
-        if (nextLevel !== currentLevel) {
-          map.setLevel(nextLevel);
-          pinchLastZoomAt = now;
-          pinchLastDistance = distance;
-        }
+        if (nextLevel !== currentLevel) map.setLevel(nextLevel);
+        pinchLastDistance = distance;
       }
       return;
     }
@@ -383,58 +359,27 @@ function initMap() {
 
     // 손가락이 오른쪽으로 움직이면 지도 내용도 오른쪽으로 움직이도록
     // 새 중심점을 '원래 중심점 - 손가락 이동량'으로 계산한다.
-    // 터치 이벤트마다 바로 setCenter()를 호출하면 기기 성능에 따라 프레임 드랍이 생길 수 있다.
-    // 최신 손가락 위치만 저장하고 한 프레임에 한 번만 지도를 갱신한다.
-    latestDragDx = totalDx;
-    latestDragDy = totalDy;
-    if (dragRaf === null) {
-      dragRaf = requestAnimationFrame(() => {
-        dragRaf = null;
-        if (!touchDragging || touchLongPressTriggered || !dragStartCenterPoint) return;
-        const projection = map.getProjection();
-        const startPoint = dragStartCenterPoint;
-        const desiredPoint = new kakao.maps.Point(
-          startPoint.x - (latestDragDx * TOUCH_DRAG_SENSITIVITY),
-          startPoint.y - (latestDragDy * TOUCH_DRAG_SENSITIVITY)
-        );
-        // 아주 작은 변화는 버려 불필요한 setCenter 호출을 줄인다.
-        const dx = latestDragDx * TOUCH_DRAG_SENSITIVITY;
-        const dy = latestDragDy * TOUCH_DRAG_SENSITIVITY;
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-        const desiredCenter = projection.coordsFromContainerPoint(desiredPoint);
-        // 애니메이션 없이 즉시 이동해 관성/추가 프레임을 만들지 않는다.
-        map.setCenter(desiredCenter);
-      });
-    }
+    const projection = map.getProjection();
+    const rect = container.getBoundingClientRect();
+    const startPoint = dragStartCenterPoint;
+    const desiredPoint = new kakao.maps.Point(
+      startPoint.x - (totalDx * TOUCH_DRAG_SENSITIVITY),
+      startPoint.y - (totalDy * TOUCH_DRAG_SENSITIVITY)
+    );
+    const desiredCenter = projection.coordsFromContainerPoint(desiredPoint);
+    map.setCenter(desiredCenter);
   }, { passive: false });
 
   container.addEventListener("touchend", (e) => {
     if (e.touches.length >= 1 && pinchStartDistance) {
-      // 두 손가락 중 하나가 올라가면 핀치만 종료하고, 남은 한 손가락은
-      // 새 드래그의 시작점으로 잡아 갑작스러운 점프를 막는다.
       pinchStartDistance = null;
       pinchLastDistance = null;
-      const t = e.touches[0];
-      dragStartTouch = { x: t.clientX, y: t.clientY };
-      const projection = map.getProjection();
-      const centerPoint = projection.containerPointFromCoords(map.getCenter());
-      dragStartCenterPoint = { x: centerPoint.x, y: centerPoint.y };
-      touchSequenceActive = true;
-      touchDragging = false;
-      clearLongPressTimer();
       return;
     }
     const wasLongPress = touchLongPressTriggered;
-    if (map && nativeDragDisabledForTouch) {
-      map.setDraggable(true);
-      nativeDragDisabledForTouch = false;
-    }
     clearLongPressTimer();
     touchSequenceActive = false;
     touchDragging = false;
-    if (dragRaf !== null) { cancelAnimationFrame(dragRaf); dragRaf = null; }
-    latestDragDx = 0;
-    latestDragDy = 0;
     dragStartTouch = null;
     dragStartCenterPoint = null;
     pinchStartDistance = null;
@@ -451,19 +396,12 @@ function initMap() {
   }, { passive: false });
 
   container.addEventListener("touchcancel", () => {
-    if (map && nativeDragDisabledForTouch) {
-      map.setDraggable(true);
-      nativeDragDisabledForTouch = false;
-    }
     clearLongPressTimer();
     pinchStartDistance = null;
     pinchLastDistance = null;
     touchSequenceActive = false;
     touchLongPressTriggered = false;
     touchDragging = false;
-    if (dragRaf !== null) { cancelAnimationFrame(dragRaf); dragRaf = null; }
-    latestDragDx = 0;
-    latestDragDy = 0;
     dragStartTouch = null;
     dragStartCenterPoint = null;
     pinchStartDistance = null;
