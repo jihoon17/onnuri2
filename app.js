@@ -29,9 +29,10 @@ let map, geocoder, placesService;
 let MAP_DATA = { markets: [], parcels: [], zones: [] };
 
 // 세종시 검색 범위 (Places 키워드 검색 시 사용)
+// ※ 카카오 radius 최대값은 20000m — 초과 시 검색이 실패할 수 있음
 const SEJONG_CENTER_LAT = 36.479934;
 const SEJONG_CENTER_LNG = 127.286740;
-const SEJONG_SEARCH_RADIUS_M = 25000; // 약 25km — 세종시 전역 커버
+const SEJONG_SEARCH_RADIUS_M = 20000;
 
 let zoneOverlaysByMarket = {};  // marketName -> [kakao.maps.Polygon, ...] (항상 유지되는 구역 배경)
 let marketLabelOverlays = [];   // { marketName, marker, overlay, content } (항상 유지되는 라벨)
@@ -1528,40 +1529,70 @@ function isSejongPlace(place) {
 
 /**
  * 세종시 한정 상호(장소) 키워드 검색
- * - 사용자는 「진성 아구찜」만 입력해도 됨 (세종 자동 한정)
- * - 콜백: places 배열 (세종 필터 후) 또는 빈 배열
+ * - 사용자는 「진성 아구찜」만 입력해도 됨
+ * - 여러 방식으로 재시도 후 세종 결과만 반환
+ * - callback(places, meta) meta: { status, tried }
  */
 function searchPlacesInSejong(query, callback) {
   if (!placesService) {
-    callback([]);
+    callback([], { status: "NO_SERVICE", tried: [] });
     return;
   }
   const q = (query || "").trim();
   if (!q) {
-    callback([]);
+    callback([], { status: "EMPTY_QUERY", tried: [] });
     return;
   }
 
-  // 이미 「세종」이 없으면 검색어에 붙여 전국 동명이점 비중을 줄임
-  const keyword = /세종/.test(q) ? q : `세종 ${q}`;
   const center = new kakao.maps.LatLng(SEJONG_CENTER_LAT, SEJONG_CENTER_LNG);
+  const options = {
+    location: center,
+    radius: SEJONG_SEARCH_RADIUS_M,
+    size: 15
+  };
 
-  placesService.keywordSearch(
-    keyword,
-    (data, status) => {
-      if (status !== kakao.maps.services.Status.OK || !data || !data.length) {
-        callback([]);
-        return;
-      }
-      const filtered = data.filter(isSejongPlace);
-      callback(filtered);
-    },
-    {
-      location: center,
-      radius: SEJONG_SEARCH_RADIUS_M,
-      size: 15
+  // 공백 유무·세종 접두를 바꿔가며 재시도 (예: 진성 아구찜 / 진성아구찜)
+  const keywordVariants = [];
+  const noSpace = q.replace(/\s+/g, "");
+  keywordVariants.push(q);
+  if (noSpace !== q) keywordVariants.push(noSpace);
+  if (!/세종/.test(q)) {
+    keywordVariants.push(`세종 ${q}`);
+    if (noSpace !== q) keywordVariants.push(`세종 ${noSpace}`);
+    keywordVariants.push(`세종특별자치시 ${q}`);
+  }
+
+  const tried = [];
+  let lastStatus = null;
+
+  function runNext(i) {
+    if (i >= keywordVariants.length) {
+      callback([], { status: lastStatus || "ZERO_RESULT", tried });
+      return;
     }
-  );
+    const keyword = keywordVariants[i];
+    const useLocation = i < 2; // 마지막 시도는 반경 없이 전국 검색 후 세종 필터
+    tried.push(keyword);
+
+    placesService.keywordSearch(
+      keyword,
+      (data, status) => {
+        lastStatus = status;
+        if (status === kakao.maps.services.Status.OK && data && data.length) {
+          const filtered = data.filter(isSejongPlace);
+          if (filtered.length) {
+            callback(filtered, { status, tried });
+            return;
+          }
+        }
+        // ERROR / ZERO_RESULT / 세종 필터 후 0건 → 다음 키워드 시도
+        runNext(i + 1);
+      },
+      useLocation ? options : { size: 15 }
+    );
+  }
+
+  runNext(0);
 }
 
 /** 장소 검색 결과를 우클릭/검색과 동일한 상세 패널로 표시 */
@@ -1718,15 +1749,35 @@ function handleSearch() {
   if (!map) return;
 
   // 1) 상호명(장소) 검색 — 세종시 한정 (「세종」은 자동 처리)
-  // 2) 없으면 주소 지오코딩
-  searchPlacesInSejong(q, (places) => {
-    if (places.length) {
+  // 2) 없으면 주소 지오코딩 (상호명은 보통 주소 검색에 안 걸리므로 안내 문구 구분)
+  searchPlacesInSejong(q, (places, meta) => {
+    if (places && places.length) {
       renderPlaceSearchResults(places, q);
       return;
     }
-    // 장소가 없으면 주소 검색으로 한 번 더 시도
-    const geoQuery = /세종/.test(q) ? q : `세종 ${q}`;
-    geocodeFallbackSearch(geoQuery);
+
+    // 주소처럼 보이면 지오코딩 시도
+    if (looksLikeAddress) {
+      const geoQuery = /세종/.test(q) ? q : `세종 ${q}`;
+      geocodeFallbackSearch(geoQuery);
+      return;
+    }
+
+    // 상호 검색 실패 안내 (API 오류 vs 결과 없음)
+    if (meta && meta.status === kakao.maps.services.Status.ERROR) {
+      showSearchNoResult(
+        "상호 검색에 실패했습니다. 카카오 개발자 콘솔에서 카카오맵(로컬) API가 활성화되어 있는지, 도메인이 등록되어 있는지 확인해주세요."
+      );
+      return;
+    }
+    if (meta && meta.status === "NO_SERVICE") {
+      showSearchNoResult("장소 검색 서비스를 불러오지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.");
+      return;
+    }
+
+    showSearchNoResult(
+      `「${q}」에 해당하는 세종시 상호를 찾지 못했습니다. 카카오맵에 등록된 이름과 같은지 확인하거나, 지번·도로명 주소로 검색해보세요.`
+    );
   });
 }
 
