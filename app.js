@@ -1222,21 +1222,22 @@ function handleMapClick(latlng) {
   removePickedAtLatLng(latlng);
 }
 
-function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parcelAddress, market, key, showPurple }) {
+function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parcelAddress, market, key, showPurple, skipDetail }) {
   // 좌표를 다시 숫자로 복사해 새 LatLng 생성 (참조/변형 문제 방지)
   const pos = new kakao.maps.LatLng(center.getLat(), center.getLng());
   const id = ++pickedLocationIdSeq;
   const areaKey = getAreaKey(key);
 
-  // 구역/필지일 때만 보라색 표시, 같은 구역은 폴리곤 1개만 유지
+  // 구역/필지일 때만 보라색 폴리곤 표시, 같은 구역은 폴리곤 1개만 유지
   if (showPurple && hitCoords && hitCoords.length) {
     ensureAreaPolygon(areaKey, hitCoords);
   }
 
+  // 검색·우클릭 핀이 다른 라벨보다 앞에 보이도록 zIndex를 높게
   const marker = new kakao.maps.Marker({
     map,
     position: pos,
-    zIndex: 50
+    zIndex: 120
   });
 
   const content = document.createElement("div");
@@ -1253,7 +1254,7 @@ function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parce
     content,
     yAnchor: 1,
     xAnchor: 0.5,
-    zIndex: 51,
+    zIndex: 121,
     clickable: true
   });
 
@@ -1280,9 +1281,45 @@ function addPickedPin({ center, hitCoords, labelText, jibunFull, roadFull, parce
     parcelKey: key
   });
 
-  // 새로 찍은 핀을 현재 보기로 설정
-  pickedViewIndex = pickedLocations.length - 1;
-  showPickedLocationAt(pickedViewIndex, false);
+  // 검색 결과용 핀은 상세 패널을 덮어쓰지 않음
+  if (!skipDetail) {
+    pickedViewIndex = pickedLocations.length - 1;
+    showPickedLocationAt(pickedViewIndex, false);
+  }
+}
+
+/** 검색 결과 한 건을 우클릭과 동일하게 핀+보라 라벨로 표시 */
+function pinFromSearchItem(item, options = {}) {
+  if (!item || !item.latlng) return;
+  const parcel = item.parcelId != null
+    ? MAP_DATA.parcels.find((p) => p.id === item.parcelId)
+    : findParcelAt(item.latlng);
+  const zone = findZoneAt(item.latlng);
+  const hitCoords = (parcel && parcel.coords) || (zone && zone.coords) || null;
+  const inZone = !!(parcel || zone);
+  const labelText = item.placeName || item.parcelAddress || item.jibunFull || "검색 위치";
+
+  addPickedPin({
+    center: item.latlng,
+    hitCoords,
+    labelText,
+    jibunFull: item.jibunFull || "",
+    roadFull: item.roadFull || "",
+    parcelAddress: item.parcelAddress || "",
+    market: item.market || (parcel && parcel.market) || (zone && zone.market) || null,
+    key: item.parcelId != null
+      ? `search|parcel|${item.parcelId}`
+      : `search|${item.latlng.getLat().toFixed(6)}|${item.latlng.getLng().toFixed(6)}`,
+    showPurple: inZone && !!hitCoords,
+    skipDetail: options.skipDetail !== false
+  });
+}
+
+/** 검색 위치로 지도 확대 (상호·주소 공통) */
+function zoomToSearchPoint(latlng) {
+  if (!map || !latlng) return;
+  map.setCenter(latlng);
+  map.setLevel(2);
 }
 
 /**
@@ -1372,7 +1409,10 @@ function renderResultList(parcels) {
     return;
   }
 
-  // 우클릭 상세와 완전히 동일한 형식: 구역 안내 + 지번/도로명/위도/경도
+  // 빨간 강조 대신 우클릭과 동일하게 핀+보라 라벨
+  clearHighlights();
+  clearPickedLocation();
+
   searchDetailItems = parcels.map(p => {
     const center = getParcelCenter(p);
     return {
@@ -1381,10 +1421,15 @@ function renderResultList(parcels) {
       roadFull: p.roadAddress || "",
       parcelAddress: formatParcelAddress(p),
       market: p.market || null,
-      parcelId: p.id
+      parcelId: p.id,
+      placeName: null
     };
   });
+  searchDetailItems.forEach((item) => pinFromSearchItem(item, { skipDetail: true }));
   searchDetailIndex = 0;
+  if (searchDetailItems[0] && searchDetailItems[0].latlng) {
+    zoomToSearchPoint(searchDetailItems[0].latlng);
+  }
   showSearchDetailAt(0, false);
 }
 
@@ -1403,7 +1448,7 @@ function showSearchDetailAt(index, panMap) {
   });
 
   if (panMap && item.latlng && map) {
-    map.panTo(item.latlng);
+    zoomToSearchPoint(item.latlng);
   }
 }
 
@@ -1511,20 +1556,23 @@ function maybeRefreshOverviewPanel() {
    8. 검색 처리
    ========================================================= */
 
-/** 카카오 장소 결과가 세종시인지 판별 */
+/** 카카오 장소 결과가 세종특별자치시인지 엄격 판별 (대전·공주·충남 등 제외) */
 function isSejongPlace(place) {
   if (!place) return false;
-  const parts = [
-    place.address_name || "",
-    place.road_address_name || "",
-    place.place_name || ""
-  ].join(" ");
-  if (/세종/.test(parts)) return true;
-  // 주소에 시·도가 없어도 좌표가 세종 중심 반경 안이면 허용
-  const lat = parseFloat(place.y);
-  const lng = parseFloat(place.x);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-  return distanceMeters(SEJONG_CENTER_LAT, SEJONG_CENTER_LNG, lat, lng) <= SEJONG_SEARCH_RADIUS_M;
+  const addr = `${place.address_name || ""} ${place.road_address_name || ""}`;
+
+  // 타 시·군 주소는 명시적으로 제외 (세종 문구가 상호에만 있어도 탈락)
+  if (/대전|공주|천안|청주|아산|논산|계룡|금산|부여|서산|당진|보령|홍성|예산|청양|서천|태안|충청남도|충남\s/.test(addr)) {
+    // 주소에 「세종특별자치시」가 함께 있는 경우만 예외 (실제로는 거의 없음)
+    if (!/세종특별자치시/.test(addr)) return false;
+  }
+
+  // 지번·도로명 주소에 세종시/세종특별자치시가 있어야 함
+  if (/세종특별자치시|세종시/.test(addr)) return true;
+  // "세종 보람동 …" 형태 (카카오 축약 표기)
+  if (/(^|\s)세종(\s|시)/.test(addr)) return true;
+
+  return false;
 }
 
 /**
@@ -1551,7 +1599,7 @@ function searchPlacesInSejong(query, callback) {
     size: 15
   };
 
-  // 공백 유무·세종 접두를 바꿔가며 재시도 (예: 진성 아구찜 / 진성아구찜)
+  // 공백 유무·세종 접두를 바꿔가며 재시도 (항상 세종 중심 반경 안에서만)
   const keywordVariants = [];
   const noSpace = q.replace(/\s+/g, "");
   keywordVariants.push(q);
@@ -1571,7 +1619,6 @@ function searchPlacesInSejong(query, callback) {
       return;
     }
     const keyword = keywordVariants[i];
-    const useLocation = i < 2; // 마지막 시도는 반경 없이 전국 검색 후 세종 필터
     tried.push(keyword);
 
     placesService.keywordSearch(
@@ -1585,17 +1632,16 @@ function searchPlacesInSejong(query, callback) {
             return;
           }
         }
-        // ERROR / ZERO_RESULT / 세종 필터 후 0건 → 다음 키워드 시도
         runNext(i + 1);
       },
-      useLocation ? options : { size: 15 }
+      options
     );
   }
 
   runNext(0);
 }
 
-/** 장소 검색 결과를 우클릭/검색과 동일한 상세 패널로 표시 */
+/** 장소 검색 결과 → 우클릭과 동일하게 핀+보라 라벨 + 상세 패널 */
 function renderPlaceSearchResults(places, originalQuery) {
   if (!places.length) return;
 
@@ -1603,7 +1649,6 @@ function renderPlaceSearchResults(places, originalQuery) {
   closeChecklist();
   selectedMarket = null;
   applyZoneColorState();
-  // 이전 우클릭 핀은 유지하지 않고 장소 검색 결과로 교체 표시
   clearPickedLocation();
 
   const detailItems = places.map((place) => {
@@ -1624,37 +1669,14 @@ function renderPlaceSearchResults(places, originalQuery) {
     };
   });
 
-  // 등록 필지와 매칭되면 빨간 강조, 아니면 첫 장소에 핀
-  const parcelsToFocus = detailItems
-    .filter((it) => it.parcelId != null)
-    .map((it) => MAP_DATA.parcels.find((p) => p.id === it.parcelId))
-    .filter(Boolean);
+  // 모든 결과에 핀+보라 라벨 (우클릭과 동일)
+  detailItems.forEach((item) => pinFromSearchItem(item, { skipDetail: true }));
 
-  if (parcelsToFocus.length) {
-    focusOnParcels(parcelsToFocus);
-  } else {
-    const first = detailItems[0];
-    if (first && first.latlng) {
-      map.setCenter(first.latlng);
-      map.setLevel(3);
-      // 핀만 표시 (상세 패널은 아래에서 장소 검색 형식으로 그림)
-      addPickedPin({
-        center: first.latlng,
-        hitCoords: null,
-        labelText: first.placeName || originalQuery,
-        jibunFull: first.jibunFull,
-        roadFull: first.roadFull,
-        parcelAddress: first.parcelAddress,
-        market: first.market,
-        key: `place|${first.latlng.getLat().toFixed(6)}|${first.latlng.getLng().toFixed(6)}`,
-        showPurple: false
-      });
-    }
-  }
-
-  // addPickedPin / focusOnParcels 이후에도 장소 검색 상세가 유지되도록 마지막에 설정
   searchDetailItems = detailItems;
   searchDetailIndex = 0;
+  if (detailItems[0] && detailItems[0].latlng) {
+    zoomToSearchPoint(detailItems[0].latlng);
+  }
   showSearchDetailAt(0, false);
 }
 
@@ -1694,13 +1716,9 @@ function geocodeFallbackSearch(query) {
         const matchedParcels = parcel ? [parcel] : MAP_DATA.parcels.filter(p => p.market === zone.market);
         if (matchedParcels.length) {
           renderResultList(matchedParcels);
-          focusOnParcels(matchedParcels);
           return;
         }
       }
-
-      map.setCenter(coords);
-      map.setLevel(4);
 
       let jibunFull = "";
       let roadFull = "";
@@ -1713,27 +1731,40 @@ function geocodeFallbackSearch(query) {
         roadFull = result[0].road_address.address_name || "";
       }
 
-      // 우클릭/꾹 누르기와 동일하게 핀 표시 (핀의 상세정보 패널이 그대로 결과창에 남음)
+      const hitCoords = (parcel && parcel.coords) || (zone && zone.coords) || null;
+      const market = (parcel && parcel.market) || (zone && zone.market) || null;
+
+      // 우클릭/꾹 누르기와 동일: 핀 + 보라 라벨, 확대
+      clearPickedLocation();
       addPickedPin({
         center: coords,
-        hitCoords: null,
+        hitCoords,
         labelText,
         jibunFull,
         roadFull,
         parcelAddress: jibunFull || query,
-        market: null,
+        market,
         key: `free|${clickLat.toFixed(6)}|${clickLng.toFixed(6)}`,
-        showPurple: false
+        showPurple: !!(hitCoords && market)
       });
+      zoomToSearchPoint(coords);
     } else {
       showSearchNoResult("검색 결과가 없습니다. 시장명, 주소, 또는 상호명을 입력해주세요.");
     }
   });
 }
 
+function dismissSearchKeyboard() {
+  const input = document.getElementById("searchInput");
+  if (input) input.blur();
+}
+
 function handleSearch() {
   const query = document.getElementById("searchInput").value;
   if (!query.trim()) return;
+
+  // 모바일: 검색 실행 시 키보드(이동/검색 버튼) 닫기
+  dismissSearchKeyboard();
 
   const q = query.trim();
   // 주소처럼 보이면 필지·주소 매칭 우선, 아니면 시장명·상호명 검색
@@ -1741,8 +1772,8 @@ function handleSearch() {
   const matched = looksLikeAddress ? searchParcelsExact(q) : searchParcels(q);
 
   if (matched.length) {
+    // 빨간 강조 없이 핀+보라 라벨로 통일 (renderResultList 내부에서 처리)
     renderResultList(matched);
-    focusOnParcels(matched);
     return;
   }
 
