@@ -184,6 +184,9 @@ function initMap() {
     level: 4,
     disableDoubleClickZoom: true
   });
+  // 터치 드래그가 브라우저의 페이지 이동으로 처리되지 않고 카카오맵에 전달되도록 명시
+  map.setDraggable(true);
+  map.setZoomable(true);
   geocoder = new kakao.maps.services.Geocoder();
   placesService = new kakao.maps.services.Places();
 
