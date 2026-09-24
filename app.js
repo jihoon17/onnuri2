@@ -200,13 +200,29 @@ function initMap() {
   geocoder = new kakao.maps.services.Geocoder();
   placesService = new kakao.maps.services.Places();
 
-  // 지도 / 스카이뷰 전환 버튼 (왼쪽 상단)
+  // 지도 / 스카이뷰 전환 버튼 (왼쪽 상단) — 회색 부가 글자 없이 기본만
   const mapTypeControl = new kakao.maps.MapTypeControl();
   map.addControl(mapTypeControl, kakao.maps.ControlPosition.TOPLEFT);
 
-  // 줌 +/- 버튼 (터치 보조)
-  const zoomControl = new kakao.maps.ZoomControl();
-  map.addControl(zoomControl, kakao.maps.ControlPosition.RIGHT);
+  // 카카오 기본 ZoomControl 은 쓰지 않음 (회색 글자·크기 문제) → 커스텀 #mapZoom 사용
+  const zoomInBtn = document.getElementById("zoomInBtn");
+  const zoomOutBtn = document.getElementById("zoomOutBtn");
+  if (zoomInBtn) {
+    zoomInBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!map) return;
+      map.setLevel(Math.max(1, map.getLevel() - 1));
+    });
+  }
+  if (zoomOutBtn) {
+    zoomOutBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!map) return;
+      map.setLevel(Math.min(14, map.getLevel() + 1));
+    });
+  }
 
   // 줌 레벨 변경 시 라벨 표시/숨김
   kakao.maps.event.addListener(map, "zoom_changed", () => {
@@ -228,16 +244,17 @@ function initMap() {
   let lastPickAt = 0;
   let lastPickKey = "";
 
-  // 한 손가락 팬
+  // 한 손가락 팬 (직전 좌표 대비 증분 — 미끄러짐 제거)
   let panActive = false;
-  let panStartTouch = null;       // {x, y}
-  let panStartCenterPt = null;    // 시작 시 지도 중심의 container point
+  let panLastTouch = null; // {x, y} 직전 터치 위치
 
-  // 두 손가락 핀치 줌
+  // 두 손가락 핀치 줌 (rAF로 프레임 드랍 완화)
   let pinchActive = false;
   let pinchStartDist = 0;
   let pinchStartLevel = 4;
   let pinchLastLevel = 4;
+  let pinchPendingLevel = null;
+  let pinchRaf = null;
 
   const LONG_PRESS_MS = 550;
   const MOVE_CANCEL_PX = 10;
@@ -245,10 +262,28 @@ function initMap() {
   const MIN_LEVEL = 1;
   const MAX_LEVEL = 14;
 
+  // 기기별 손 드래그 감도 (빙판 느낌 제거 + 패드 더 낮게)
+  function getTouchPanSensitivity() {
+    const w = window.innerWidth || 400;
+    if (w >= 600) return 0.18; // 패드
+    return 0.28; // 핸드폰
+  }
+
+  function flushPinchLevel() {
+    pinchRaf = null;
+    if (pinchPendingLevel == null || !map) return;
+    const lv = pinchPendingLevel;
+    pinchPendingLevel = null;
+    if (lv !== map.getLevel()) {
+      map.setLevel(lv);
+      lastZoomAt = Date.now();
+    }
+  }
+
   const isInteractiveTarget = (target) => {
     if (!target || !target.closest) return false;
     return !!target.closest(
-      ".market-label, button, a, input, label, .suggest-item, .addr-checklist-panel, .type-chip, .mic-btn"
+      ".market-label, button, a, input, label, .suggest-item, .addr-checklist-panel, .type-chip, .mic-btn, .map-zoom, .map-joystick, .panel-toggle"
     );
   };
 
@@ -304,24 +339,24 @@ function initMap() {
     handleMapClick(containerPointToLatLng(e.clientX, e.clientY));
   });
 
-  // ===== 네이버맵식 터치 제스처: 1손가락 이동 / 2손가락 핀치 줌 =====
+  // ===== 터치 제스처: 1손가락 이동(증분) / 2손가락 핀치(rAF) =====
   container.addEventListener("touchstart", (e) => {
     lastTouchAt = Date.now();
 
-    // 라벨·버튼 위에서는 지도 제스처 시작 안 함
     if (isInteractiveTarget(e.target)) {
       clearLongPress();
       panActive = false;
       pinchActive = false;
+      panLastTouch = null;
       return;
     }
 
     if (e.touches.length >= 2) {
-      // 핀치 시작
       multiTouchActive = true;
       lastMultiTouchAt = Date.now();
       clearLongPress();
       panActive = false;
+      panLastTouch = null;
       pinchActive = true;
       pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
       pinchStartLevel = map.getLevel();
@@ -333,26 +368,20 @@ function initMap() {
       multiTouchActive = false;
       pinchActive = false;
       const t = e.touches[0];
-      panActive = false; // 이동 임계값 넘기 전까지는 false
-      panStartTouch = { x: t.clientX, y: t.clientY };
-      try {
-        const center = map.getCenter();
-        const pt = map.getProjection().containerPointFromCoords(center);
-        panStartCenterPt = { x: pt.x, y: pt.y };
-      } catch (_) {
-        panStartCenterPt = null;
-      }
+      panActive = false;
+      panLastTouch = { x: t.clientX, y: t.clientY };
       startLongPress(t.clientX, t.clientY);
     }
   }, { passive: true });
 
   container.addEventListener("touchmove", (e) => {
-    // ----- 두 손가락: 핀치 줌 -----
+    // ----- 두 손가락: 핀치 줌 (레벨 변경은 rAF로 한 프레임에 1회) -----
     if (e.touches.length >= 2) {
       multiTouchActive = true;
       lastMultiTouchAt = Date.now();
       clearLongPress();
       panActive = false;
+      panLastTouch = null;
 
       if (!pinchActive) {
         pinchActive = true;
@@ -363,42 +392,38 @@ function initMap() {
 
       e.preventDefault();
       const dist = touchDist(e.touches[0], e.touches[1]) || pinchStartDist;
-      // 거리 비율 → 레벨 변화 (카카오: level 작을수록 확대)
       const ratio = dist / (pinchStartDist || 1);
-      // 비율 2배 ≈ 약 2레벨 확대, 로그 스케일로 부드럽게
       const levelDelta = -Math.round(Math.log2(Math.max(0.25, Math.min(4, ratio))) * 2);
-      let newLevel = pinchStartLevel + levelDelta;
-      newLevel = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, newLevel));
+      let newLevel = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, pinchStartLevel + levelDelta));
       if (newLevel !== pinchLastLevel) {
         pinchLastLevel = newLevel;
-        map.setLevel(newLevel);
-        lastZoomAt = Date.now();
+        pinchPendingLevel = newLevel;
+        if (!pinchRaf) pinchRaf = requestAnimationFrame(flushPinchLevel);
       }
       return;
     }
 
-    // ----- 한 손가락: 지도 이동 (감도 0.5) -----
-    if (e.touches.length === 1 && panStartTouch && panStartCenterPt) {
+    // ----- 한 손가락: 증분 이동 (미끄러짐 없음) -----
+    if (e.touches.length === 1 && panLastTouch) {
       const t = e.touches[0];
-      const rawDx = t.clientX - panStartTouch.x;
-      const rawDy = t.clientY - panStartTouch.y;
+      const rawDx = t.clientX - panLastTouch.x;
+      const rawDy = t.clientY - panLastTouch.y;
       const dist = Math.hypot(rawDx, rawDy);
-      const dx = rawDx * 0.5;
-      const dy = rawDy * 0.5;
 
-      if (dist > MOVE_CANCEL_PX) {
+      if (dist > MOVE_CANCEL_PX || panActive) {
         clearLongPress();
         panActive = true;
         e.preventDefault();
+        const sens = getTouchPanSensitivity();
+        const dx = rawDx * sens;
+        const dy = rawDy * sens;
+        panLastTouch = { x: t.clientX, y: t.clientY };
         try {
-          // 손가락이 오른쪽으로 가면 지도 내용도 오른쪽 → 중심은 반대로
           const proj = map.getProjection();
-          const desired = new kakao.maps.Point(
-            panStartCenterPt.x - dx,
-            panStartCenterPt.y - dy
-          );
-          const newCenter = proj.coordsFromContainerPoint(desired);
-          map.setCenter(newCenter);
+          const center = map.getCenter();
+          const pt = proj.containerPointFromCoords(center);
+          const desired = new kakao.maps.Point(pt.x - dx, pt.y - dy);
+          map.setCenter(proj.coordsFromContainerPoint(desired));
         } catch (_) {}
       }
     }
@@ -414,30 +439,20 @@ function initMap() {
     }
 
     if (remaining === 1) {
-      // 핀치 → 한 손가락으로 전환: 팬 재시작
       multiTouchActive = false;
       lastMultiTouchAt = Date.now();
       pinchActive = false;
       const t = e.touches[0];
-      panStartTouch = { x: t.clientX, y: t.clientY };
-      try {
-        const center = map.getCenter();
-        const pt = map.getProjection().containerPointFromCoords(center);
-        panStartCenterPt = { x: pt.x, y: pt.y };
-      } catch (_) {
-        panStartCenterPt = null;
-      }
+      panLastTouch = { x: t.clientX, y: t.clientY };
       panActive = false;
       return;
     }
 
-    // 손가락 모두 뗌
     if (multiTouchActive || pinchActive) lastMultiTouchAt = Date.now();
     multiTouchActive = false;
     pinchActive = false;
     panActive = false;
-    panStartTouch = null;
-    panStartCenterPt = null;
+    panLastTouch = null;
   }, { passive: true });
 
   container.addEventListener("touchcancel", () => {
@@ -445,8 +460,7 @@ function initMap() {
     multiTouchActive = false;
     pinchActive = false;
     panActive = false;
-    panStartTouch = null;
-    panStartCenterPt = null;
+    panLastTouch = null;
     lastMultiTouchAt = Date.now();
   }, { passive: true });
 
@@ -2094,9 +2108,14 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
   const knob = document.getElementById("mapJoystickKnob");
   if (!root || !knob) return;
 
-  // 노브 최대 이동량: 조이스틱 크기에 비례 (핸드폰/패드·PC 자동)
+  // 노브 최대 이동량: 조이스틱 크기에 비례
   const getMaxKnob = () => Math.max(12, root.offsetWidth / 2 - 16);
-  const PAN_SPEED = 4.5; // 프레임당 이동 강도 (레벨에 따라 보정)
+  // 기본 속도 / 컴퓨터(960px+) 는 1.5배
+  const basePanSpeed = 4.5;
+  const getPanSpeed = () => {
+    const desktop = window.matchMedia && window.matchMedia("(min-width: 960px)").matches;
+    return basePanSpeed * (desktop ? 1.5 : 1);
+  };
 
   let vecX = 0; // -1 ~ 1
   let vecY = 0;
@@ -2148,8 +2167,8 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     }
     try {
       const level = map.getLevel();
-      // 줌 아웃일수록 더 많이 이동
-      const step = PAN_SPEED * (0.6 + level * 0.35);
+      // 줌 아웃일수록 더 많이 이동 / PC는 1.5배
+      const step = getPanSpeed() * (0.6 + level * 0.35);
       // 화면 기준: x>0 오른쪽, y>0 아래 → 지도 중심은 반대
       const proj = map.getProjection();
       const center = map.getCenter();

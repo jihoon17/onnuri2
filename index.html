@@ -4,21 +4,22 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>상점가 위치 검색 지도</title>
-<!-- v20260924c: 조이스틱·화살표·감도 수정본 (캐시 깨기용 버전) -->
-<link rel="stylesheet" href="style.css?v=20260924c">
+<!-- v20260924d -->
+<link rel="stylesheet" href="style.css?v=20260924d">
 <style>
-  /* 캐시된 옛 CSS를 덮어쓰는 핵심 스타일 */
+  /* ===== 강제 오버라이드 v20260924d ===== */
+  .panel-toggle-text { display: none !important; }
   .panel-toggle {
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    border: 1px solid rgba(0,0,0,0.14) !important;
     background: #fff !important;
+    border: 1px solid rgba(0,0,0,0.14) !important;
     box-shadow: 0 1px 5px rgba(0,0,0,0.14) !important;
     padding: 0 !important;
     cursor: pointer !important;
   }
-  .panel-toggle .panel-toggle-text { display: none !important; }
+  /* 모바일 하단 화살표: 굴곡 칩만 */
   .panel-toggle--bottom {
     width: 52px !important;
     height: 30px !important;
@@ -26,15 +27,55 @@
     border-radius: 12px 12px 0 0 !important;
     border-bottom: none !important;
   }
+  .side-panel.is-collapsed .result-list,
+  .side-panel.is-collapsed .result-header { display: none !important; }
+  .side-panel.is-collapsed .result-section { background: transparent !important; }
   .side-panel.is-collapsed .panel-toggle--bottom {
     border-radius: 0 0 12px 12px !important;
-    border: 1px solid rgba(0,0,0,0.14) !important;
     border-top: none !important;
   }
-  .side-panel.is-collapsed .result-list,
-  .side-panel.is-collapsed .result-header {
+  /* 사이드 화살표: 지도 왼쪽 중앙 (접기/펼치기 동일 위치) */
+  .panel-toggle--side {
     display: none !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    z-index: 35 !important;
+    width: 30px !important;
+    height: 56px !important;
+    border-radius: 0 12px 12px 0 !important;
+    border-left: none !important;
   }
+  /* 커스텀 줌 (회색 글자 없음) */
+  .map-zoom {
+    position: absolute !important;
+    right: 12px !important;
+    top: 12px !important;
+    z-index: 35 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    border-radius: 8px !important;
+    overflow: hidden !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18) !important;
+    background: #fff !important;
+  }
+  .map-zoom-btn {
+    width: 36px !important;
+    height: 36px !important;
+    border: none !important;
+    background: #fff !important;
+    color: #333 !important;
+    font-size: 22px !important;
+    font-weight: 600 !important;
+    line-height: 1 !important;
+    cursor: pointer !important;
+    padding: 0 !important;
+  }
+  .map-zoom-btn + .map-zoom-btn {
+    border-top: 1px solid #e5e5e5 !important;
+  }
+  .map-zoom-btn:active { background: #f0f0f0 !important; }
   .map-joystick {
     position: absolute !important;
     right: 12px !important;
@@ -44,41 +85,36 @@
     height: 80px !important;
   }
   @media (min-width: 600px) {
+    .panel-toggle--side { display: flex !important; }
+    .panel-toggle--bottom { display: none !important; }
     .map-joystick {
       width: 160px !important;
       height: 160px !important;
       right: 18px !important;
       bottom: 18px !important;
     }
-    .panel-toggle--side {
-      display: inline-flex !important;
-      width: 30px !important;
-      height: 52px !important;
-      border-radius: 0 12px 12px 0 !important;
-      border-left: none !important;
-      margin-left: auto !important;
+    /* 줌 버튼 2배 */
+    .map-zoom-btn {
+      width: 72px !important;
+      height: 72px !important;
+      font-size: 36px !important;
     }
     .side-panel.is-collapsed {
-      flex: 0 0 30px !important;
-      max-width: 30px !important;
-      min-width: 30px !important;
+      flex: 0 0 0px !important;
+      max-width: 0 !important;
+      min-width: 0 !important;
+      width: 0 !important;
+      border: none !important;
       background: transparent !important;
+      overflow: visible !important;
     }
     .side-panel.is-collapsed .search-bar,
-    .side-panel.is-collapsed .result-list,
-    .side-panel.is-collapsed .result-header > span,
-    .side-panel.is-collapsed .result-count-badge {
+    .side-panel.is-collapsed .result-section {
       display: none !important;
     }
-    .side-panel.is-collapsed .result-header {
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      height: 100% !important;
-      background: transparent !important;
-      border: none !important;
-      padding: 0 !important;
-    }
+  }
+  @media (min-width: 960px) {
+    .panel-toggle--bottom { display: none !important; }
   }
 </style>
 </head>
@@ -109,15 +145,11 @@
       <div class="result-header">
         <span id="resultTitle">검색 결과</span>
         <span class="result-count-badge" id="alleyCountBadge">골목형상점가 0곳</span>
-        <!-- 가로(PC) 레이아웃용: 오른쪽 화살표만 -->
-        <button type="button" class="panel-toggle panel-toggle--side" id="panelToggleSide" aria-expanded="true" title="목록 접기/펼치기" aria-label="목록 접기">
-          <span class="panel-toggle-icon" aria-hidden="true">◀</span>
-        </button>
       </div>
       <div class="result-list" id="resultList">
         <div class="result-empty">골목형상점가 데이터를 불러오는 중입니다…</div>
       </div>
-      <!-- 세로(모바일) 레이아웃용: 아래 화살표만 -->
+      <!-- 세로(모바일): 굴곡 화살표만 -->
       <button type="button" class="panel-toggle panel-toggle--bottom" id="panelToggleBottom" aria-expanded="true" title="목록 접기/펼치기" aria-label="목록 접기">
         <span class="panel-toggle-icon" aria-hidden="true">▲</span>
       </button>
@@ -128,7 +160,16 @@
   <div class="map-panel">
     <div class="map-wrap">
       <div id="map"></div>
-      <!-- 지도 이동 조이스틱 (터치·마우스·키보드 화살표) -->
+      <!-- PC/패드: 지도 왼쪽 가장자리 중앙 화살표 (접기·펼치기 동일 위치) -->
+      <button type="button" class="panel-toggle panel-toggle--side" id="panelToggleSide" aria-expanded="true" title="목록 접기/펼치기" aria-label="목록 접기">
+        <span class="panel-toggle-icon" aria-hidden="true">◀</span>
+      </button>
+      <!-- 커스텀 줌 (+/−) — 회색 글자 없음, PC/패드에서 2배 -->
+      <div class="map-zoom" id="mapZoom" aria-label="지도 확대 축소">
+        <button type="button" class="map-zoom-btn" id="zoomInBtn" title="확대" aria-label="확대">+</button>
+        <button type="button" class="map-zoom-btn" id="zoomOutBtn" title="축소" aria-label="축소">−</button>
+      </div>
+      <!-- 지도 이동 조이스틱 -->
       <div class="map-joystick" id="mapJoystick" aria-label="지도 이동 조이스틱">
         <div class="map-joystick-base">
           <div class="map-joystick-knob" id="mapJoystickKnob"></div>
@@ -152,6 +193,6 @@
 <!-- 엑셀 파싱 라이브러리 (SheetJS) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 기능 로직 v20260924c -->
-<script src="app.js?v=20260924c"></script>
+<script src="app.js?v=20260924d"></script>
 </body>
 </html>
