@@ -188,7 +188,7 @@ function initMap() {
     level: 4,
     disableDoubleClickZoom: true
   });
-  // 터치 드래그가 브라우저의 페이지 이동으로 처리되지 않고 카카오맵에 전달되도록 명시
+  // 패드/폰: 한 손가락 드래그 이동, 두 손가락 핀치 줌 (네이버맵과 동일 — 카카오 기본 제스처)
   map.setDraggable(true);
   map.setZoomable(true);
   geocoder = new kakao.maps.services.Geocoder();
@@ -197,6 +197,10 @@ function initMap() {
   // 지도 / 스카이뷰 전환 버튼 (왼쪽 상단)
   const mapTypeControl = new kakao.maps.MapTypeControl();
   map.addControl(mapTypeControl, kakao.maps.ControlPosition.TOPLEFT);
+
+  // 줌 +/- 버튼 (터치 보조)
+  const zoomControl = new kakao.maps.ZoomControl();
+  map.addControl(zoomControl, kakao.maps.ControlPosition.RIGHT);
 
   // 줌 레벨 변경 시 라벨 표시/숨김 (마커는 항상 유지)
   // 줌인/아웃 직후 라벨 터치로 체크리스트가 뜨지 않도록 시각 기록
