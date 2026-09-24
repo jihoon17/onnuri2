@@ -219,10 +219,15 @@ function initMap() {
   let touchDragging = false;
   let dragStartCenterPoint = null;
   let dragStartTouch = null;
+  let pinchStartDistance = null;
+  let pinchStartLevel = null;
+  let pinchLastLevel = null;
 
   const LONG_PRESS_MS = 500;
   const MOVE_CANCEL_PX = 10;
   const SYNTHETIC_CLICK_GUARD_MS = 900;
+  // 손가락 이동 1px을 지도에는 더 작게 반영해 태블릿 드래그 속도를 자연스럽게 조정
+  const TOUCH_DRAG_SENSITIVITY = 0.38;
 
   // 우클릭(PC)
   container.addEventListener("contextmenu", (e) => {
@@ -262,11 +267,28 @@ function initMap() {
   // 손가락 이동량을 지도 중심 좌표로 변환한다. 이렇게 하면 브라우저/카카오맵의
   // 기본 touch gesture가 막혀 있어도 지도 자체를 이동시킬 수 있다.
   container.addEventListener("touchstart", (e) => {
+    if (e.touches.length >= 2) {
+      clearLongPressTimer();
+      touchSequenceActive = false;
+      touchLongPressTriggered = false;
+      touchDragging = false;
+      const a = e.touches[0];
+      const b = e.touches[1];
+      pinchStartDistance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+      pinchStartLevel = map.getLevel();
+      pinchLastLevel = pinchStartLevel;
+      e.preventDefault();
+      return;
+    }
+
     if (e.touches.length !== 1) {
       clearLongPressTimer();
       touchSequenceActive = false;
       touchLongPressTriggered = false;
       touchDragging = false;
+      pinchStartDistance = null;
+      pinchStartLevel = null;
+      pinchLastLevel = null;
       return;
     }
 
@@ -296,6 +318,24 @@ function initMap() {
   }, { passive: false });
 
   container.addEventListener("touchmove", (e) => {
+    if (e.touches.length >= 2 && pinchStartDistance) {
+      e.preventDefault();
+      const a = e.touches[0];
+      const b = e.touches[1];
+      const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+      if (distance < 1) return;
+      // 두 손가락 간격이 약 25% 변할 때마다 한 단계씩 확대/축소
+      const ratio = distance / pinchStartDistance;
+      const delta = Math.log(ratio) / Math.log(1.25);
+      let level = Math.round(pinchStartLevel - delta);
+      level = Math.max(1, Math.min(14, level));
+      if (level !== pinchLastLevel) {
+        map.setLevel(level);
+        pinchLastLevel = level;
+      }
+      return;
+    }
+
     if (!touchSequenceActive || !dragStartTouch || e.touches.length !== 1) return;
     e.preventDefault();
 
@@ -317,20 +357,29 @@ function initMap() {
     const rect = container.getBoundingClientRect();
     const startPoint = dragStartCenterPoint;
     const desiredPoint = new kakao.maps.Point(
-      startPoint.x - totalDx,
-      startPoint.y - totalDy
+      startPoint.x - (totalDx * TOUCH_DRAG_SENSITIVITY),
+      startPoint.y - (totalDy * TOUCH_DRAG_SENSITIVITY)
     );
     const desiredCenter = projection.coordsFromContainerPoint(desiredPoint);
     map.setCenter(desiredCenter);
   }, { passive: false });
 
   container.addEventListener("touchend", (e) => {
+    if (e.touches.length >= 1 && pinchStartDistance) {
+      pinchStartDistance = null;
+      pinchStartLevel = null;
+      pinchLastLevel = null;
+      return;
+    }
     const wasLongPress = touchLongPressTriggered;
     clearLongPressTimer();
     touchSequenceActive = false;
     touchDragging = false;
     dragStartTouch = null;
     dragStartCenterPoint = null;
+    pinchStartDistance = null;
+    pinchStartLevel = null;
+    pinchLastLevel = null;
 
     if (wasLongPress) {
       ignoreClickUntil = Math.max(ignoreClickUntil, Date.now() + SYNTHETIC_CLICK_GUARD_MS);
@@ -344,11 +393,17 @@ function initMap() {
 
   container.addEventListener("touchcancel", () => {
     clearLongPressTimer();
+    pinchStartDistance = null;
+    pinchStartLevel = null;
+    pinchLastLevel = null;
     touchSequenceActive = false;
     touchLongPressTriggered = false;
     touchDragging = false;
     dragStartTouch = null;
     dragStartCenterPoint = null;
+    pinchStartDistance = null;
+    pinchStartLevel = null;
+    pinchLastLevel = null;
   }, { passive: false });
 
 }
@@ -2102,3 +2157,17 @@ Promise.allSettled([loadKakaoSdk(KAKAO_APP_KEY), loadExcelData(EXCEL_FILE_URL)])
     map.setCenter(new kakao.maps.LatLng(36.479934, 127.286740));
     map.setLevel(4);
   });
+
+// 태블릿/모바일 확대·축소 버튼
+const zoomInBtn = document.getElementById("zoomInBtn");
+const zoomOutBtn = document.getElementById("zoomOutBtn");
+if (zoomInBtn) zoomInBtn.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  map.setLevel(Math.max(1, map.getLevel() - 1));
+});
+if (zoomOutBtn) zoomOutBtn.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  map.setLevel(Math.min(14, map.getLevel() + 1));
+});
