@@ -319,8 +319,8 @@ html, body {
   height: 100%;
   min-height: 380px;
   background: #dfe7ee;
-  /* 태블릿 터치 드래그는 app.js에서 좌표 기반으로 직접 처리 */
-  touch-action: none;
+  /* 카카오맵 기본 터치(드래그·핀치줌) + 라벨 탭 허용 */
+  touch-action: manipulation;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
@@ -430,6 +430,9 @@ html, body {
   transition: background 0.15s ease, transform 0.15s ease;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  pointer-events: auto;
 }
 .market-label:hover {
   background: #33465a;
@@ -656,37 +659,3 @@ html, body {
     font-size: 16px;
   }
 }
-
-/* 태블릿 지도 확대/축소 버튼 */
-.touch-zoom-controls {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.touch-zoom-controls button {
-  width: 44px;
-  height: 44px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  background: rgba(255,255,255,0.95);
-  color: #333;
-  font-size: 26px;
-  line-height: 1;
-  font-weight: 600;
-  box-shadow: 0 2px 7px rgba(0,0,0,.16);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.touch-zoom-controls button:active {
-  background: #f0f0f0;
-  transform: scale(.96);
-}
-
-/* 태블릿 수동 지도 이동: 이동 감도는 JS에서 조절 */
-#map { touch-action: none; }
-.touch-zoom-controls { pointer-events: auto; }
-.touch-zoom-controls button { touch-action: manipulation; user-select: none; }
