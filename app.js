@@ -330,8 +330,8 @@ function initMap() {
       const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
       if (pinchLastDistance === null) pinchLastDistance = distance;
       const change = distance - pinchLastDistance;
-      // 손가락 간격이 약 55px 변할 때마다 한 단계씩 확대/축소
-      if (Math.abs(change) >= 55) {
+      // 손가락 간격이 약 60px 변할 때마다 한 단계씩 확대/축소
+      if (Math.abs(change) >= 60) {
         const currentLevel = map.getLevel();
         const nextLevel = change > 0
           ? Math.max(1, currentLevel - 1)
