@@ -85,22 +85,22 @@ html, body {
   color: #555;
 }
 
-/* 모바일: 흰 배경 없음(지도 비침), 평평한 위·둥근 아래 */
+/* 모바일: 좁은 굴곡 칩만 (양옆은 부모 투명 → 지도 보임) */
 .panel-toggle--bottom {
-  width: 48px;
+  width: 40px;
   height: 28px;
   margin: 0 auto;
   border-radius: 0 0 10px 10px;
-  border: none;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-top: none;
   position: relative;
   z-index: 5;
-  background: transparent;
-  box-shadow: none;
+  background: rgba(255,255,255,0.92);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
 }
 .panel-toggle--bottom:hover,
 .panel-toggle--bottom:active {
-  background: transparent;
-  box-shadow: none;
+  background: rgba(255,255,255,0.96);
 }
 .panel-toggle--side {
   display: none;
@@ -122,10 +122,12 @@ html, body {
   flex: 0 0 auto;
 }
 .side-panel.is-collapsed .panel-toggle--bottom {
+  width: 40px;
   border-radius: 0 0 10px 10px;
-  border: none;
-  background: transparent;
-  box-shadow: none;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-top: none;
+  background: rgba(255,255,255,0.92);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
   margin-top: 0;
 }
 

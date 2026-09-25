@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>상점가 위치 검색 지도</title>
-<!-- v20260925d -->
-<link rel="stylesheet" href="style.css?v=20260925a">
+<!-- v20260925e -->
+<link rel="stylesheet" href="style.css?v=20260925e">
 <style>
-  /* ===== 강제 오버라이드 v20260925d ===== */
+  /* ===== 강제 오버라이드 v20260925e ===== */
   .panel-toggle-text { display: none !important; }
   .panel-toggle {
     display: flex !important;
@@ -19,35 +19,39 @@
     padding: 0 !important;
     cursor: pointer !important;
   }
-  /* 모바일 하단 화살표: 흰 배경 제거(지도 비침), 평평한 위·둥근 아래 유지 */
+  /* 모바일 하단 화살표: 좁은 칩만, 옆은 투명(지도 보임) */
   .panel-toggle--bottom {
-    width: 52px !important;
-    height: 30px !important;
+    width: 40px !important;
+    height: 28px !important;
     margin: 0 auto !important;
-    border-radius: 0 0 12px 12px !important;
-    border: none !important;
-    background: transparent !important;
-    box-shadow: none !important;
+    border-radius: 0 0 10px 10px !important;
+    border: 1px solid rgba(0,0,0,0.12) !important;
+    border-top: none !important;
+    background: rgba(255,255,255,0.92) !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12) !important;
   }
   .panel-toggle--bottom:hover,
   .panel-toggle--bottom:active {
-    background: transparent !important;
-    box-shadow: none !important;
+    background: rgba(255,255,255,0.96) !important;
   }
   .panel-toggle--bottom .panel-toggle-icon {
     color: #333 !important;
-    font-size: 18px !important;
+    font-size: 16px !important;
     font-weight: 800 !important;
-    text-shadow: 0 0 4px #fff, 0 1px 2px rgba(255,255,255,0.95), 0 -1px 2px rgba(255,255,255,0.95);
   }
   .side-panel.is-collapsed .result-list,
   .side-panel.is-collapsed .result-header { display: none !important; }
-  .side-panel.is-collapsed .result-section { background: transparent !important; }
-  .side-panel.is-collapsed .panel-toggle--bottom {
-    border-radius: 0 0 12px 12px !important;
-    border: none !important;
+  .side-panel.is-collapsed .result-section {
     background: transparent !important;
-    box-shadow: none !important;
+    width: 100% !important;
+  }
+  .side-panel.is-collapsed .panel-toggle--bottom {
+    width: 40px !important;
+    border-radius: 0 0 10px 10px !important;
+    border: 1px solid rgba(0,0,0,0.12) !important;
+    border-top: none !important;
+    background: rgba(255,255,255,0.92) !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12) !important;
   }
   /* 사이드 화살표: 지도 왼쪽 중앙 (접기/펼치기 동일 위치) */
   .panel-toggle--side {
@@ -176,23 +180,29 @@
   }
 }
 
-/* 모바일/태블릿: 아래 화살표 탭 외에는 흰색을 남기지 않음 */
+/* 모바일: 접힌 뒤에도 화살표 칩 양옆은 완전 투명(지도 노출) */
 @media (max-width: 599px) {
   .side-panel.is-collapsed,
   .side-panel.is-collapsed .result-section,
-  .side-panel.is-collapsed .result-header {
+  .side-panel.is-collapsed .result-header,
+  .side-panel.is-collapsed .result-header-wrap,
+  .side-panel.is-collapsed .panel-toggle-wrap {
     background: transparent !important;
     background-color: transparent !important;
     border: 0 !important;
     box-shadow: none !important;
   }
+  /* 칩만 좁게 — 양옆 흰색 띠 없음 */
   .side-panel.is-collapsed .panel-toggle--bottom {
-    background: #fff !important;
-    background-color: #fff !important;
-    border: 1px solid rgba(0,0,0,.14) !important;
+    width: 40px !important;
+    max-width: 40px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    background: rgba(255,255,255,0.92) !important;
+    border: 1px solid rgba(0,0,0,.12) !important;
     border-top: 0 !important;
-    border-radius: 0 0 12px 12px !important;
-    box-shadow: 0 1px 5px rgba(0,0,0,.14) !important;
+    border-radius: 0 0 10px 10px !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,.12) !important;
   }
 }
 </style>
@@ -272,8 +282,8 @@
 
 <!-- 엑셀 파싱 라이브러리 (SheetJS) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<!-- 기능 로직 v20260924c -->
-<script src="app.js?v=20260925a"></script>
+<!-- 기능 로직 v20260925e -->
+<script src="app.js?v=20260925e"></script>
 </body>
 </html>
 <style>
