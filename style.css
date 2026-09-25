@@ -85,22 +85,16 @@ html, body {
   color: #555;
 }
 
-/* 모바일: 목록과 지도 사이 가운데 — 흰 박스 없이 화살표만 (투명) */
+/* 모바일: 목록과 지도 사이 가운데 — 흰 칩 (접혀도 도형 뒤집지 않음) */
 .panel-toggle--bottom {
   width: 48px;
   height: 28px;
   margin: 0 auto;
   border-radius: 10px 10px 0 0;
-  border: none;
+  border-bottom: none;
   position: relative;
   z-index: 5;
-  background: transparent;
-  box-shadow: none;
-}
-.panel-toggle--bottom:hover,
-.panel-toggle--bottom:active {
-  background: transparent;
-  box-shadow: none;
+  background: #fff;
 }
 .panel-toggle--side {
   display: none;
@@ -122,10 +116,11 @@ html, body {
   flex: 0 0 auto;
 }
 .side-panel.is-collapsed .panel-toggle--bottom {
-  border-radius: 0 0 10px 10px;
-  border: none;
-  background: transparent;
-  box-shadow: none;
+  /* PC 사이드 화살표처럼 도형은 그대로, 화살표만 방향 변경 */
+  border-radius: 10px 10px 0 0;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-bottom: none;
+  background: #fff;
   margin-top: 0;
 }
 
