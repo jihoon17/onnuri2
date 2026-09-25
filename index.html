@@ -132,6 +132,71 @@
     .panel-toggle--bottom { display: none !important; }
   }
 </style>
+
+<style id="arrow-area-transparent-final">
+/* 화살표 탭 주변의 흰색 영역은 완전히 투명하게 */
+.side-panel.is-collapsed,
+.side-panel.is-collapsed .result-section,
+.side-panel.is-collapsed .result-header,
+.side-panel.is-collapsed .result-header-wrap,
+.side-panel.is-collapsed .panel-toggle-wrap {
+  background: transparent !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* PC: 접힌 패널 자체가 흰색 띠를 만들지 않도록 */
+@media (min-width: 600px) {
+  .side-panel.is-collapsed {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  .side-panel.is-collapsed .result-section {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  .side-panel.is-collapsed .result-header {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  .side-panel.is-collapsed .panel-toggle--side {
+    background: #fff !important;
+    background-color: #fff !important;
+    border: 1px solid rgba(0,0,0,.14) !important;
+    border-left: 0 !important;
+    border-radius: 0 12px 12px 0 !important;
+    box-shadow: 1px 1px 5px rgba(0,0,0,.14) !important;
+  }
+}
+
+/* 모바일/태블릿: 아래 화살표 탭 외에는 흰색을 남기지 않음 */
+@media (max-width: 599px) {
+  .side-panel.is-collapsed,
+  .side-panel.is-collapsed .result-section,
+  .side-panel.is-collapsed .result-header {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  .side-panel.is-collapsed .panel-toggle--bottom {
+    background: #fff !important;
+    background-color: #fff !important;
+    border: 1px solid rgba(0,0,0,.14) !important;
+    border-top: 0 !important;
+    border-radius: 0 0 12px 12px !important;
+    box-shadow: 0 1px 5px rgba(0,0,0,.14) !important;
+  }
+}
+</style>
+
 </head>
 <body>
 <div class="app">
