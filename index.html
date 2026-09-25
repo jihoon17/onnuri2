@@ -211,3 +211,50 @@
 <script src="app.js?v=20260925a"></script>
 </body>
 </html>
+<style>
+/* 화살표 탭 모양 최종 수정: 화살표 주변의 흰색은 탭 자체만 남기고 주변 영역은 지도 투명 */
+.panel-toggle--bottom {
+  position: relative !important;
+  z-index: 60 !important;
+  width: 52px !important;
+  height: 30px !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  border: 1px solid rgba(0,0,0,.12) !important;
+  border-top: none !important;
+  border-radius: 0 0 12px 12px !important;
+  background: #fff !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,.12) !important;
+}
+.panel-toggle--bottom:hover,
+.panel-toggle--bottom:active {
+  background: #fff !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,.12) !important;
+}
+/* 버튼 옆/뒤의 흰 영역은 없애고 지도와 같은 투명 상태 */
+.side-panel.is-collapsed,
+.side-panel.is-collapsed .result-section {
+  background: transparent !important;
+  border: none !important;
+}
+.side-panel.is-collapsed .panel-toggle--bottom {
+  background: #fff !important;
+  border: 1px solid rgba(0,0,0,.12) !important;
+  border-top: none !important;
+  border-radius: 0 0 12px 12px !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,.12) !important;
+}
+/* PC/패드 왼쪽 탭: 직선 부분은 지도와 맞닿고, 둥근 부분만 흰색 */
+.panel-toggle--side {
+  background: #fff !important;
+  border: 1px solid rgba(0,0,0,.12) !important;
+  border-left: none !important;
+  border-radius: 0 12px 12px 0 !important;
+  box-shadow: 1px 1px 5px rgba(0,0,0,.12) !important;
+}
+.side-panel.is-collapsed .panel-toggle--side {
+  background: #fff !important;
+  border-left: none !important;
+  border-radius: 0 12px 12px 0 !important;
+}
+</style>
