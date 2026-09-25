@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>상점가 위치 검색 지도</title>
-<!-- v20260925b -->
+<!-- v20260925c -->
 <link rel="stylesheet" href="style.css?v=20260925a">
 <style>
-  /* ===== 강제 오버라이드 v20260925b ===== */
+  /* ===== 강제 오버라이드 v20260925c ===== */
   .panel-toggle-text { display: none !important; }
   .panel-toggle {
     display: flex !important;
@@ -19,16 +19,16 @@
     padding: 0 !important;
     cursor: pointer !important;
   }
-  /* 모바일 하단 화살표: 흰 칩 복구 + 접혀도 도형 뒤집지 않음 (PC처럼 화살표만 변경) */
+  /* 모바일 하단 화살표: 평평한 위쪽이 검색/목록에 붙고, 아래만 둥글게 (접혀도 동일) */
   .panel-toggle--bottom {
     width: 52px !important;
     height: 30px !important;
     margin: 0 auto !important;
-    border-radius: 12px 12px 0 0 !important;
+    border-radius: 0 0 12px 12px !important;
     border: 1px solid rgba(0,0,0,0.14) !important;
-    border-bottom: none !important;
+    border-top: none !important;
     background: #fff !important;
-    box-shadow: 0 1px 5px rgba(0,0,0,0.14) !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12) !important;
   }
   .panel-toggle--bottom:hover {
     background: #fafafa !important;
@@ -44,13 +44,13 @@
   .side-panel.is-collapsed .result-list,
   .side-panel.is-collapsed .result-header { display: none !important; }
   .side-panel.is-collapsed .result-section { background: transparent !important; }
-  /* 접혀도 border-radius 동일 유지 (뒤집기 없음) — 화살표만 ▲↔▼ */
+  /* 접혀도 도형 뒤집지 않음 — 평평한 위 + 둥근 아래 유지, 화살표만 ▲↔▼ */
   .side-panel.is-collapsed .panel-toggle--bottom {
-    border-radius: 12px 12px 0 0 !important;
+    border-radius: 0 0 12px 12px !important;
     border: 1px solid rgba(0,0,0,0.14) !important;
-    border-bottom: none !important;
+    border-top: none !important;
     background: #fff !important;
-    box-shadow: 0 1px 5px rgba(0,0,0,0.14) !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12) !important;
   }
   /* 사이드 화살표: 지도 왼쪽 중앙 (접기/펼치기 동일 위치) */
   .panel-toggle--side {

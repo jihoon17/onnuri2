@@ -251,13 +251,17 @@ function initMap() {
   let touchPanPendingDy = 0;
   let touchPanRaf = null;
 
-  // 두 손가락 핀치 줌 — +/- 버튼처럼 1단계씩만 변경 (프레임 드랍 완화)
+  // 두 손가락 핀치 줌 — 제스처 시작 거리 기준으로 목표 레벨 계산, 1단계씩만 적용
   let pinchActive = false;
-  let pinchBaseDist = 0;       // 마지막 레벨 변경 시점의 손가락 거리
+  let pinchStartDist = 0;      // 핀치 시작 시 손가락 거리
+  let pinchStartLevel = 4;     // 핀치 시작 시 지도 레벨
   let pinchPendingLevel = null;
   let pinchRaf = null;
-  // 거리가 이 비율만큼 변하면 줌 레벨 1단계 변경 (+ 버튼 연타와 동일한 느낌)
-  const PINCH_STEP_RATIO = 1.22;
+  let pinchLastApplyAt = 0;    // 마지막 setLevel 시각 (연타 방지)
+  // 거리 비율 → 레벨 변화 민감도 (작을수록 더 많이 벌려야 1단계)
+  // log2(ratio) * SENS ≈ 레벨 변화량. SENS=1.4 이면 ~1.6배 벌리면 1단계
+  const PINCH_LEVEL_SENS = 1.4;
+  const PINCH_MIN_INTERVAL_MS = 90; // 레벨 변경 최소 간격 (프레임 드랍 방지)
 
   const LONG_PRESS_MS = 550;
   const MOVE_CANCEL_PX = 10;
@@ -387,7 +391,8 @@ function initMap() {
       panActive = false;
       panLastTouch = null;
       pinchActive = true;
-      pinchBaseDist = touchDist(e.touches[0], e.touches[1]) || 1;
+      pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
+      pinchStartLevel = map ? map.getLevel() : 4;
       return;
     }
 
@@ -402,7 +407,7 @@ function initMap() {
   }, { passive: true });
 
   container.addEventListener("touchmove", (e) => {
-    // ----- 두 손가락: 핀치 줌 (+/− 버튼처럼 1레벨씩 단계 변경) -----
+    // ----- 두 손가락: 핀치 줌 (시작 거리 대비 목표 레벨, 1단계씩·간격 제한) -----
     if (e.touches.length >= 2) {
       multiTouchActive = true;
       lastMultiTouchAt = Date.now();
@@ -412,34 +417,29 @@ function initMap() {
 
       if (!pinchActive) {
         pinchActive = true;
-        pinchBaseDist = touchDist(e.touches[0], e.touches[1]) || 1;
+        pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
+        pinchStartLevel = map ? map.getLevel() : 4;
       }
 
       e.preventDefault();
-      const dist = touchDist(e.touches[0], e.touches[1]) || pinchBaseDist;
-      const base = pinchBaseDist || 1;
-      const ratio = dist / base;
+      if (!map) return;
+      const dist = touchDist(e.touches[0], e.touches[1]) || pinchStartDist;
+      const ratio = dist / (pinchStartDist || 1);
+      // 벌리면 ratio>1 → 확대(레벨↓), 모으면 축소(레벨↑)
+      // Math.round(log2(ratio)*SENS) 로 +/- 버튼 연타와 같은 정수 단계
+      const rawDelta = -Math.round(Math.log2(Math.max(0.2, Math.min(5, ratio))) * PINCH_LEVEL_SENS);
+      const target = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, pinchStartLevel + rawDelta));
+      const cur = map.getLevel();
+      if (target === cur) return;
 
-      // 손가락을 벌리면 확대(레벨↓), 모으면 축소(레벨↑) — 임계치 넘을 때만 1단계
-      let step = 0;
-      if (ratio >= PINCH_STEP_RATIO) {
-        step = -1; // 확대
-      } else if (ratio <= 1 / PINCH_STEP_RATIO) {
-        step = 1; // 축소
-      }
-      if (step !== 0 && map) {
-        const cur = map.getLevel();
-        const newLevel = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, cur + step));
-        if (newLevel !== cur) {
-          // 기준 거리를 지금 거리로 리셋 → 다음 단계도 같은 비율만큼 더 움직여야 함
-          pinchBaseDist = dist;
-          pinchPendingLevel = newLevel;
-          if (!pinchRaf) pinchRaf = requestAnimationFrame(flushPinchLevel);
-        } else {
-          // 한계 레벨이면 기준만 맞춰 두어 손 떨림으로 반복 호출 방지
-          pinchBaseDist = dist;
-        }
-      }
+      const now = Date.now();
+      if (now - pinchLastApplyAt < PINCH_MIN_INTERVAL_MS) return;
+
+      // 한 번에 최대 1레벨만 이동 (급격한 점프·프레임 드랍 방지)
+      const step = target < cur ? -1 : 1;
+      pinchPendingLevel = cur + step;
+      pinchLastApplyAt = now;
+      if (!pinchRaf) pinchRaf = requestAnimationFrame(flushPinchLevel);
       return;
     }
 
