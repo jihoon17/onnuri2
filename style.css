@@ -85,16 +85,22 @@ html, body {
   color: #555;
 }
 
-/* 모바일: 평평한 위쪽이 검색/목록에 붙고, 아래만 둥글게 */
+/* 모바일: 흰 배경 없음(지도 비침), 평평한 위·둥근 아래 */
 .panel-toggle--bottom {
   width: 48px;
   height: 28px;
   margin: 0 auto;
   border-radius: 0 0 10px 10px;
-  border-top: none;
+  border: none;
   position: relative;
   z-index: 5;
-  background: #fff;
+  background: transparent;
+  box-shadow: none;
+}
+.panel-toggle--bottom:hover,
+.panel-toggle--bottom:active {
+  background: transparent;
+  box-shadow: none;
 }
 .panel-toggle--side {
   display: none;
@@ -116,11 +122,10 @@ html, body {
   flex: 0 0 auto;
 }
 .side-panel.is-collapsed .panel-toggle--bottom {
-  /* 접혀도 뒤집지 않음: 평평한 위 + 둥근 아래 유지 */
   border-radius: 0 0 10px 10px;
-  border: 1px solid rgba(0,0,0,0.12);
-  border-top: none;
-  background: #fff;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   margin-top: 0;
 }
 

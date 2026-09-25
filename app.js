@@ -251,17 +251,17 @@ function initMap() {
   let touchPanPendingDy = 0;
   let touchPanRaf = null;
 
-  // 두 손가락 핀치 줌 — 제스처 시작 거리 기준으로 목표 레벨 계산, 1단계씩만 적용
+  // 두 손가락 핀치 줌 — + 버튼 연속 연타처럼 1레벨씩 순차 적용
   let pinchActive = false;
-  let pinchStartDist = 0;      // 핀치 시작 시 손가락 거리
-  let pinchStartLevel = 4;     // 핀치 시작 시 지도 레벨
-  let pinchPendingLevel = null;
-  let pinchRaf = null;
-  let pinchLastApplyAt = 0;    // 마지막 setLevel 시각 (연타 방지)
-  // 거리 비율 → 레벨 변화 민감도 (작을수록 더 많이 벌려야 1단계)
-  // log2(ratio) * SENS ≈ 레벨 변화량. SENS=1.4 이면 ~1.6배 벌리면 1단계
-  const PINCH_LEVEL_SENS = 1.4;
-  const PINCH_MIN_INTERVAL_MS = 90; // 레벨 변경 최소 간격 (프레임 드랍 방지)
+  let pinchStartDist = 0;
+  let pinchStartLevel = 4;
+  let pinchTargetLevel = null;   // 손가락 위치가 가리키는 목표 레벨
+  let pinchStepTimer = null;     // 순차 setLevel 타이머
+  let pinchStepping = false;
+  // 거리 비율 → 레벨 변화. SENS=1.5 → 약 1.5배 벌리면 1단계
+  const PINCH_LEVEL_SENS = 1.5;
+  // + 버튼 연타 간격과 비슷하게 (지도·구역이 같이 따라오도록)
+  const PINCH_STEP_MS = 120;
 
   const LONG_PRESS_MS = 550;
   const MOVE_CANCEL_PX = 10;
@@ -297,19 +297,48 @@ function initMap() {
     if (touchPanRaf == null) touchPanRaf = requestAnimationFrame(flushTouchPan);
   }
 
-  function flushPinchLevel() {
-    pinchRaf = null;
-    if (pinchPendingLevel == null || !map) return;
-    const lv = pinchPendingLevel;
-    pinchPendingLevel = null;
-    if (lv !== map.getLevel()) {
-      // animate:false 로 부드럽게 보간하지 않고 즉시 1단계만 적용 (버벅임 감소)
-      try {
-        map.setLevel(lv, { animate: false });
-      } catch (_) {
-        map.setLevel(lv);
-      }
-      lastZoomAt = Date.now();
+  // + 버튼을 연속으로 누르듯, 목표 레벨까지 1단계씩 순차 적용
+  function stopPinchStepping() {
+    if (pinchStepTimer != null) {
+      clearTimeout(pinchStepTimer);
+      pinchStepTimer = null;
+    }
+    pinchStepping = false;
+  }
+
+  function stepPinchTowardTarget() {
+    pinchStepTimer = null;
+    if (!map || pinchTargetLevel == null) {
+      pinchStepping = false;
+      return;
+    }
+    const cur = map.getLevel();
+    const target = pinchTargetLevel;
+    if (cur === target) {
+      pinchStepping = false;
+      return;
+    }
+    const next = cur + (target < cur ? -1 : 1);
+    try {
+      map.setLevel(next, { animate: false });
+    } catch (_) {
+      map.setLevel(next);
+    }
+    lastZoomAt = Date.now();
+    if (next !== target) {
+      pinchStepping = true;
+      pinchStepTimer = setTimeout(stepPinchTowardTarget, PINCH_STEP_MS);
+    } else {
+      pinchStepping = false;
+    }
+  }
+
+  function requestPinchTarget(level) {
+    pinchTargetLevel = level;
+    if (!pinchStepping) {
+      pinchStepping = true;
+      // 바로 1단계 진행 후, 나머지는 간격 두고 연타
+      stepPinchTowardTarget();
     }
   }
 
@@ -390,9 +419,11 @@ function initMap() {
       clearLongPress();
       panActive = false;
       panLastTouch = null;
+      stopPinchStepping();
       pinchActive = true;
       pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
       pinchStartLevel = map ? map.getLevel() : 4;
+      pinchTargetLevel = pinchStartLevel;
       return;
     }
 
@@ -407,7 +438,7 @@ function initMap() {
   }, { passive: true });
 
   container.addEventListener("touchmove", (e) => {
-    // ----- 두 손가락: 핀치 줌 (시작 거리 대비 목표 레벨, 1단계씩·간격 제한) -----
+    // ----- 두 손가락: 핀치 줌 (+ 버튼 연속 연타처럼 목표까지 1레벨씩) -----
     if (e.touches.length >= 2) {
       multiTouchActive = true;
       lastMultiTouchAt = Date.now();
@@ -419,27 +450,19 @@ function initMap() {
         pinchActive = true;
         pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
         pinchStartLevel = map ? map.getLevel() : 4;
+        pinchTargetLevel = pinchStartLevel;
       }
 
       e.preventDefault();
       if (!map) return;
       const dist = touchDist(e.touches[0], e.touches[1]) || pinchStartDist;
       const ratio = dist / (pinchStartDist || 1);
-      // 벌리면 ratio>1 → 확대(레벨↓), 모으면 축소(레벨↑)
-      // Math.round(log2(ratio)*SENS) 로 +/- 버튼 연타와 같은 정수 단계
-      const rawDelta = -Math.round(Math.log2(Math.max(0.2, Math.min(5, ratio))) * PINCH_LEVEL_SENS);
+      // 벌리면 확대(레벨↓), 모으면 축소(레벨↑)
+      const rawDelta = -Math.round(Math.log2(Math.max(0.25, Math.min(4, ratio))) * PINCH_LEVEL_SENS);
       const target = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, pinchStartLevel + rawDelta));
-      const cur = map.getLevel();
-      if (target === cur) return;
-
-      const now = Date.now();
-      if (now - pinchLastApplyAt < PINCH_MIN_INTERVAL_MS) return;
-
-      // 한 번에 최대 1레벨만 이동 (급격한 점프·프레임 드랍 방지)
-      const step = target < cur ? -1 : 1;
-      pinchPendingLevel = cur + step;
-      pinchLastApplyAt = now;
-      if (!pinchRaf) pinchRaf = requestAnimationFrame(flushPinchLevel);
+      if (target !== pinchTargetLevel) {
+        requestPinchTarget(target);
+      }
       return;
     }
 
