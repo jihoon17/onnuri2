@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>상점가 위치 검색 지도</title>
-<!-- v20260924d -->
-<link rel="stylesheet" href="style.css?v=20260924d">
+<!-- v20260925a -->
+<link rel="stylesheet" href="style.css?v=20260925a">
 <style>
-  /* ===== 강제 오버라이드 v20260924d ===== */
+  /* ===== 강제 오버라이드 v20260925a ===== */
   .panel-toggle-text { display: none !important; }
   .panel-toggle {
     display: flex !important;
@@ -19,20 +19,34 @@
     padding: 0 !important;
     cursor: pointer !important;
   }
-  /* 모바일 하단 화살표: 굴곡 칩만 */
+  /* 모바일 하단 화살표: 흰 배경 없이 투명 (화살표만 보임) */
   .panel-toggle--bottom {
     width: 52px !important;
     height: 30px !important;
     margin: 0 auto !important;
     border-radius: 12px 12px 0 0 !important;
-    border-bottom: none !important;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .panel-toggle--bottom:hover,
+  .panel-toggle--bottom:active {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .panel-toggle--bottom .panel-toggle-icon {
+    color: #444 !important;
+    text-shadow: 0 0 3px rgba(255,255,255,0.9), 0 1px 2px rgba(255,255,255,0.7);
+    font-size: 16px !important;
   }
   .side-panel.is-collapsed .result-list,
   .side-panel.is-collapsed .result-header { display: none !important; }
   .side-panel.is-collapsed .result-section { background: transparent !important; }
   .side-panel.is-collapsed .panel-toggle--bottom {
     border-radius: 0 0 12px 12px !important;
-    border-top: none !important;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
   }
   /* 사이드 화살표: 지도 왼쪽 중앙 (접기/펼치기 동일 위치) */
   .panel-toggle--side {
@@ -193,6 +207,6 @@
 <!-- 엑셀 파싱 라이브러리 (SheetJS) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 기능 로직 v20260924c -->
-<script src="app.js?v=20260924d"></script>
+<script src="app.js?v=20260925a"></script>
 </body>
 </html>

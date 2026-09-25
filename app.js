@@ -212,7 +212,7 @@ function initMap() {
       e.preventDefault();
       e.stopPropagation();
       if (!map) return;
-      map.setLevel(Math.max(1, map.getLevel() - 1));
+      try { map.setLevel(Math.max(1, map.getLevel() - 1), { animate: false }); } catch (_) { map.setLevel(Math.max(1, map.getLevel() - 1)); }
     });
   }
   if (zoomOutBtn) {
@@ -220,7 +220,7 @@ function initMap() {
       e.preventDefault();
       e.stopPropagation();
       if (!map) return;
-      map.setLevel(Math.min(14, map.getLevel() + 1));
+      try { map.setLevel(Math.min(14, map.getLevel() + 1), { animate: false }); } catch (_) { map.setLevel(Math.min(14, map.getLevel() + 1)); }
     });
   }
 
@@ -251,13 +251,13 @@ function initMap() {
   let touchPanPendingDy = 0;
   let touchPanRaf = null;
 
-  // 두 손가락 핀치 줌 (rAF로 프레임 드랍 완화)
+  // 두 손가락 핀치 줌 — +/- 버튼처럼 1단계씩만 변경 (프레임 드랍 완화)
   let pinchActive = false;
-  let pinchStartDist = 0;
-  let pinchStartLevel = 4;
-  let pinchLastLevel = 4;
+  let pinchBaseDist = 0;       // 마지막 레벨 변경 시점의 손가락 거리
   let pinchPendingLevel = null;
   let pinchRaf = null;
+  // 거리가 이 비율만큼 변하면 줌 레벨 1단계 변경 (+ 버튼 연타와 동일한 느낌)
+  const PINCH_STEP_RATIO = 1.22;
 
   const LONG_PRESS_MS = 550;
   const MOVE_CANCEL_PX = 10;
@@ -299,7 +299,12 @@ function initMap() {
     const lv = pinchPendingLevel;
     pinchPendingLevel = null;
     if (lv !== map.getLevel()) {
-      map.setLevel(lv);
+      // animate:false 로 부드럽게 보간하지 않고 즉시 1단계만 적용 (버벅임 감소)
+      try {
+        map.setLevel(lv, { animate: false });
+      } catch (_) {
+        map.setLevel(lv);
+      }
       lastZoomAt = Date.now();
     }
   }
@@ -382,9 +387,7 @@ function initMap() {
       panActive = false;
       panLastTouch = null;
       pinchActive = true;
-      pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
-      pinchStartLevel = map.getLevel();
-      pinchLastLevel = pinchStartLevel;
+      pinchBaseDist = touchDist(e.touches[0], e.touches[1]) || 1;
       return;
     }
 
@@ -399,7 +402,7 @@ function initMap() {
   }, { passive: true });
 
   container.addEventListener("touchmove", (e) => {
-    // ----- 두 손가락: 핀치 줌 (레벨 변경은 rAF로 한 프레임에 1회) -----
+    // ----- 두 손가락: 핀치 줌 (+/− 버튼처럼 1레벨씩 단계 변경) -----
     if (e.touches.length >= 2) {
       multiTouchActive = true;
       lastMultiTouchAt = Date.now();
@@ -409,20 +412,33 @@ function initMap() {
 
       if (!pinchActive) {
         pinchActive = true;
-        pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
-        pinchStartLevel = map.getLevel();
-        pinchLastLevel = pinchStartLevel;
+        pinchBaseDist = touchDist(e.touches[0], e.touches[1]) || 1;
       }
 
       e.preventDefault();
-      const dist = touchDist(e.touches[0], e.touches[1]) || pinchStartDist;
-      const ratio = dist / (pinchStartDist || 1);
-      const levelDelta = -Math.round(Math.log2(Math.max(0.25, Math.min(4, ratio))) * 2);
-      let newLevel = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, pinchStartLevel + levelDelta));
-      if (newLevel !== pinchLastLevel) {
-        pinchLastLevel = newLevel;
-        pinchPendingLevel = newLevel;
-        if (!pinchRaf) pinchRaf = requestAnimationFrame(flushPinchLevel);
+      const dist = touchDist(e.touches[0], e.touches[1]) || pinchBaseDist;
+      const base = pinchBaseDist || 1;
+      const ratio = dist / base;
+
+      // 손가락을 벌리면 확대(레벨↓), 모으면 축소(레벨↑) — 임계치 넘을 때만 1단계
+      let step = 0;
+      if (ratio >= PINCH_STEP_RATIO) {
+        step = -1; // 확대
+      } else if (ratio <= 1 / PINCH_STEP_RATIO) {
+        step = 1; // 축소
+      }
+      if (step !== 0 && map) {
+        const cur = map.getLevel();
+        const newLevel = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, cur + step));
+        if (newLevel !== cur) {
+          // 기준 거리를 지금 거리로 리셋 → 다음 단계도 같은 비율만큼 더 움직여야 함
+          pinchBaseDist = dist;
+          pinchPendingLevel = newLevel;
+          if (!pinchRaf) pinchRaf = requestAnimationFrame(flushPinchLevel);
+        } else {
+          // 한계 레벨이면 기준만 맞춰 두어 손 떨림으로 반복 호출 방지
+          pinchBaseDist = dist;
+        }
       }
       return;
     }
