@@ -2180,23 +2180,25 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     }
   }
 
-  // 다시 펼치면 사이트 최초 진입 크기(CSS 기본값)로 복원
+  /** 인라인으로 잡힌 크기 전부 제거 → CSS 기본(처음 접속 크기) */
+  function clearInlineSize() {
+    sidePanel.style.height = "";
+    sidePanel.style.maxHeight = "";
+    sidePanel.style.minHeight = "";
+    sidePanel.style.width = "";
+    sidePanel.style.minWidth = "";
+    sidePanel.style.maxWidth = "";
+    sidePanel.style.flex = "";
+  }
+
   function setCollapsed(collapsed) {
     if (collapsed) {
       sidePanel.classList.add("is-collapsed");
-      sidePanel.style.maxHeight = "";
-      sidePanel.style.width = "";
-      sidePanel.style.minWidth = "";
-      sidePanel.style.maxWidth = "";
-      sidePanel.style.flex = "";
+      clearInlineSize();
     } else {
       sidePanel.classList.remove("is-collapsed");
-      // 조절했던 인라인 크기 제거 → 처음 크기
-      sidePanel.style.maxHeight = "";
-      sidePanel.style.width = "";
-      sidePanel.style.minWidth = "";
-      sidePanel.style.maxWidth = "";
-      sidePanel.style.flex = "";
+      // 펼칠 때 무조건 처음 접속 크기
+      clearInlineSize();
     }
     [btnBottom, btnSide].forEach((btn) => {
       if (!btn) return;
@@ -2214,8 +2216,8 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
 
   const toggle = () => setCollapsed(!sidePanel.classList.contains("is-collapsed"));
 
-  // 짧게 탭 = 접기/펼치기
-  // 0.8초 길게 누른 뒤 드래그 = 패널 크기 조절
+  // 짧게 탭 = 접기/펼치기 (펼치면 항상 처음 크기)
+  // 0.8초 길게 누른 뒤 드래그 = 크기 조절
   function bindResizeHandle(btn, axis) {
     if (!btn) return;
     let startX = 0, startY = 0;
@@ -2242,22 +2244,38 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
       startW = rect.width;
     }
 
-    /** 골목형상점가 칩이 화면 바닥에 닿지 않도록 최대 높이 계산 */
-    function clampHeightByTypeFilters(desiredH) {
+    /** 모바일: height를 직접 지정해야 아래로 늘어남 (max-height만으로는 안 늘어남) */
+    function applyMobileHeight(desiredH) {
       const appH = window.innerHeight || 600;
-      let next = Math.max(appH * 0.12, desiredH);
-      sidePanel.style.maxHeight = next + "px";
+      let next = Math.max(Math.round(appH * 0.15), Math.round(desiredH));
+      // 지도가 너무 안 보이게 막기
+      next = Math.min(next, Math.round(appH * 0.75));
       sidePanel.style.flex = "0 0 auto";
+      sidePanel.style.height = next + "px";
+      sidePanel.style.maxHeight = next + "px";
+      sidePanel.style.minHeight = "0";
       void sidePanel.offsetHeight;
+      // 골목형상점가 칩이 바닥에 닿으면 더 이상 안 늘림
       const filters = document.getElementById("typeFilterOptions");
       if (filters) {
         const fb = filters.getBoundingClientRect().bottom;
         const limit = appH - 8;
         if (fb > limit) {
-          next = Math.max(appH * 0.12, next - (fb - limit));
+          next = Math.max(Math.round(appH * 0.15), next - (fb - limit));
+          sidePanel.style.height = next + "px";
           sidePanel.style.maxHeight = next + "px";
         }
       }
+      return next;
+    }
+
+    function applyDesktopWidth(desiredW) {
+      const appW = window.innerWidth || 400;
+      let next = Math.max(180, Math.min(Math.round(appW * 0.55), Math.round(desiredW)));
+      sidePanel.style.flex = "0 0 " + next + "px";
+      sidePanel.style.width = next + "px";
+      sidePanel.style.minWidth = next + "px";
+      sidePanel.style.maxWidth = next + "px";
       return next;
     }
 
@@ -2278,6 +2296,8 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
         longPressReady = true;
         if (sidePanel.classList.contains("is-collapsed")) {
           setCollapsed(false);
+          // 펼친 뒤 실제 높이 다시 측정
+          void sidePanel.offsetHeight;
         }
         captureSize();
         btn.classList.add("is-resizing");
@@ -2301,23 +2321,16 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
       if (!longPressReady) return;
 
       resizing = true;
-      const appW = window.innerWidth || 400;
-
       if (axis === "y") {
-        // 아래로 끌면 목록 커짐 (dy>0)
-        const desired = startH + dy;
-        clampHeightByTypeFilters(desired);
+        applyMobileHeight(startH + dy);
         if (map && typeof map.relayout === "function") {
           try { map.relayout(); } catch (_) {}
         }
       } else {
-        let next = startW + dx;
-        next = Math.max(180, Math.min(appW * 0.55, next));
-        sidePanel.style.width = next + "px";
-        sidePanel.style.flex = "0 0 auto";
-        sidePanel.style.maxWidth = next + "px";
-        sidePanel.style.minWidth = next + "px";
-        relayoutMapSoon();
+        applyDesktopWidth(startW + dx);
+        if (map && typeof map.relayout === "function") {
+          try { map.relayout(); } catch (_) {}
+        }
       }
     }
 

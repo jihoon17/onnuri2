@@ -256,7 +256,7 @@ html, body {
   white-space: nowrap;
 }
 .result-list {
-  max-height: 140px;
+  max-height: none;
   overflow-y: auto;
   background: var(--primary-light);
   border-bottom: none;
