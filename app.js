@@ -257,9 +257,8 @@ function initMap() {
   let pinchStartDist = 0;
   let pinchStartLevel = 4;
   let pinchAppliedLevel = null;
-  // log2(2)=1 → GAIN 0.45면 거리 2배여야 약 0.45레벨 ≈ 거의 반 단계 감도
-  // 거리 약 4.3배일 때 1레벨 (손가락만큼만 천천히)
-  const PINCH_GAIN = 0.45;
+  // 낮을수록 같은 손가락 움직임에 덜 확대됨 (흔들림·과확대 방지)
+  const PINCH_GAIN = 0.30;
 
   const LONG_PRESS_MS = 550;
   const MOVE_CANCEL_PX = 10;
@@ -300,14 +299,18 @@ function initMap() {
     if (touchPanRaf == null) touchPanRaf = requestAnimationFrame(flushTouchPan);
   }
 
-  /** 제스처 시작 거리 대비 현재 거리 → 목표 레벨 (손가락 움직임에 비례) */
+  /** 손가락 이동량에 비례. 한 번에 1레벨만, 과확대·흔들림 방지 */
   function applyProportionalPinch(currentDist) {
     if (!map || !pinchStartDist) return;
     const ratio = currentDist / pinchStartDist;
     // 벌림(ratio>1) → 확대 → level 감소
     const delta = -Math.log2(Math.max(0.25, Math.min(4, ratio))) * PINCH_GAIN;
-    let target = Math.round(pinchStartLevel + delta);
-    // 카카오 하드 한계 안에서만 (같은 레벨이면 setLevel 호출 안 함 → 튕김 완화)
+    const continuous = pinchStartLevel + delta;
+    // 0.5가 아니라 0.85 이상 움직여야 다음 레벨 (빠른 핀치로 급확대 방지)
+    let target = pinchAppliedLevel != null ? pinchAppliedLevel : pinchStartLevel;
+    if (continuous <= target - 0.85) target = target - 1;
+    else if (continuous >= target + 0.85) target = target + 1;
+    // 한 프레임에 최대 1단계만
     target = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, target));
     if (pinchAppliedLevel === target) return;
     const cur = map.getLevel();
@@ -327,7 +330,8 @@ function initMap() {
   const isInteractiveTarget = (target) => {
     if (!target || !target.closest) return false;
     return !!target.closest(
-      ".market-label, button, a, input, label, .suggest-item, .addr-checklist-panel, .type-chip, .mic-btn, .map-zoom, .map-joystick, .panel-toggle, .map-type-filters"
+      // market-label은 제외: 라벨 위 드래그도 지도 이동 가능, 탭만 라벨이 처리
+      "button, a, input, label, .suggest-item, .addr-checklist-panel, .type-chip, .mic-btn, .map-zoom, .map-joystick, .panel-toggle, .map-type-filters"
     );
   };
 
@@ -1064,13 +1068,13 @@ function drawMarketLabels() {
     content.textContent = getMarketLabelText(m);
     content.style.setProperty("--sel-color", colors.dark);
     content.style.cursor = "pointer";
-    content.style.touchAction = "manipulation";
-    // 터치·마우스 모두 동작 (다시 눌러 취소 텀 0.06초)
+    // 라벨 위에서도 지도 드래그가 되도록 none (클릭만 우리가 판정)
+    content.style.touchAction = "none";
     let lastActivateAt = 0;
     let labelTouchStartXY = null;
     let labelFingerMoved = false;
-    const LABEL_DRAG_PX = 10; // 이 이상 움직이면 탭이 아니라 드래그로 간주
-    const LABEL_TOGGLE_MS = 60; // 다시 눌러 취소 텀
+    const LABEL_DRAG_PX = 10;
+    const LABEL_TOGGLE_MS = 60;
 
     const onLabelActivate = (e) => {
       if (e) {
@@ -1078,7 +1082,6 @@ function drawMarketLabels() {
         e.stopPropagation();
       }
       const now = Date.now();
-      // 드래그·핀치·줌 직후에는 라벨 강조하지 않음
       if (mapFingerDragging) return;
       if (multiTouchActive) return;
       if (labelFingerMoved) return;
@@ -1090,6 +1093,7 @@ function drawMarketLabels() {
       selectMarketByLabel(m.baseName);
     };
 
+    // stopPropagation 하지 않음 → 지도 팬/줌이 라벨 위에서도 동작
     content.addEventListener("touchstart", (e) => {
       if (e.touches.length >= 2) {
         multiTouchActive = true;
@@ -1101,7 +1105,6 @@ function drawMarketLabels() {
       const t = e.touches[0];
       labelTouchStartXY = t ? { x: t.clientX, y: t.clientY } : null;
       labelFingerMoved = false;
-      e.stopPropagation();
     }, { passive: true });
 
     content.addEventListener("touchmove", (e) => {
@@ -1114,11 +1117,12 @@ function drawMarketLabels() {
       }
     }, { passive: true });
 
-    content.addEventListener("mousedown", (e) => {
-      e.stopPropagation();
-    });
     content.addEventListener("click", (e) => {
-      if (mapFingerDragging || labelFingerMoved) return;
+      if (mapFingerDragging || labelFingerMoved) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       onLabelActivate(e);
     });
     content.addEventListener("touchend", (e) => {
@@ -1131,7 +1135,6 @@ function drawMarketLabels() {
         labelFingerMoved = false;
         return;
       }
-      // 끌어서 이동한 경우에는 강조하지 않음
       if (mapFingerDragging || labelFingerMoved) {
         labelTouchStartXY = null;
         labelFingerMoved = false;

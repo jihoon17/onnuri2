@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>상점가 위치 검색 지도</title>
-<!-- v20260926h -->
+<!-- v20260926i -->
 <link rel="stylesheet" href="style.css?v=20260926g">
 <style>
-  /* ===== 강제 오버라이드 v20260926h ===== */
+  /* ===== 강제 오버라이드 v20260926i ===== */
   .map-type-filters {
     position: absolute !important;
     left: 8px !important;
@@ -154,6 +154,33 @@
   }
   @media (min-width: 960px) {
     .panel-toggle--bottom { display: none !important; }
+  }
+  /* 가로 화면: 조이스틱·줌 버튼 0.7배 */
+  @media (orientation: landscape) {
+    .map-joystick {
+      width: 56px !important;
+      height: 56px !important;
+      right: 10px !important;
+      bottom: 10px !important;
+    }
+    .map-zoom-btn {
+      width: 26px !important;
+      height: 26px !important;
+      font-size: 16px !important;
+    }
+  }
+  @media (orientation: landscape) and (min-width: 600px) {
+    .map-joystick {
+      width: 112px !important;
+      height: 112px !important;
+      right: 14px !important;
+      bottom: 14px !important;
+    }
+    .map-zoom-btn {
+      width: 50px !important;
+      height: 50px !important;
+      font-size: 25px !important;
+    }
   }
 </style>
 
