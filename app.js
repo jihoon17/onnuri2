@@ -49,6 +49,7 @@ let ignoreClickUntil = 0;       // 롱프레스/라벨 탭 직후 지도 클릭�
 let lastZoomAt = 0;             // 줌 직후 라벨 탭으로 체크리스트 열리는 것 방지
 let multiTouchActive = false;   // 두 손가락(핀치 줌) 중이면 true
 let lastMultiTouchAt = 0;       // 멀티터치 종료 시각 (직후 라벨 탭 무시)
+let mapFingerDragging = false;  // 한 손가락으로 지도 끄는 중이면 라벨 탭 무시
 let checklistMarket = null;     // 체크리스트가 열려있는 상점가 (null이면 닫힘)
 let checklistOverlay = null;    // 체크리스트 흰색 박스(CustomOverlay)
 let checklistHighlights = {};   // parcelId -> kakao.maps.Polygon (체크리스트에서 켠 주소 강조)
@@ -263,8 +264,14 @@ function initMap() {
   const LONG_PRESS_MS = 550;
   const MOVE_CANCEL_PX = 10;
   const PICK_DEDUP_MS = 900;
+  // 카카오맵 하드 한계는 대략 1(최대 확대)~14(최대 축소). 1 미만은 API가 막음
   const MIN_LEVEL = 1;
   const MAX_LEVEL = 14;
+  try {
+    // 가능하면 라이브러리 기본 제한을 최대한 넓힘
+    if (typeof map.setMinLevel === "function") map.setMinLevel(1);
+    if (typeof map.setMaxLevel === "function") map.setMaxLevel(14);
+  } catch (_) {}
 
   function getTouchPanSensitivity() {
     const w = window.innerWidth || 400;
@@ -299,10 +306,9 @@ function initMap() {
     const ratio = currentDist / pinchStartDist;
     // 벌림(ratio>1) → 확대 → level 감소
     const delta = -Math.log2(Math.max(0.25, Math.min(4, ratio))) * PINCH_GAIN;
-    const target = Math.max(
-      MIN_LEVEL,
-      Math.min(MAX_LEVEL, Math.round(pinchStartLevel + delta))
-    );
+    let target = Math.round(pinchStartLevel + delta);
+    // 카카오 하드 한계 안에서만 (같은 레벨이면 setLevel 호출 안 함 → 튕김 완화)
+    target = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, target));
     if (pinchAppliedLevel === target) return;
     const cur = map.getLevel();
     if (cur === target) {
@@ -312,7 +318,7 @@ function initMap() {
     try {
       map.setLevel(target, { animate: false });
     } catch (_) {
-      map.setLevel(target);
+      try { map.setLevel(target); } catch (__) {}
     }
     pinchAppliedLevel = target;
     lastZoomAt = Date.now();
@@ -445,6 +451,7 @@ function initMap() {
       if (dist > MOVE_CANCEL_PX || panActive) {
         clearLongPress();
         panActive = true;
+        mapFingerDragging = true; // 드래그 중 라벨 강조 방지
         e.preventDefault();
         const sens = getTouchPanSensitivity();
         const dx = rawDx * sens;
@@ -473,6 +480,7 @@ function initMap() {
       const t = e.touches[0];
       panLastTouch = { x: t.clientX, y: t.clientY };
       panActive = false;
+      // 드래그 플래그는 손가락을 모두 뗄 때까지 유지 (라벨 touchend와 경쟁 방지)
       return;
     }
 
@@ -483,12 +491,15 @@ function initMap() {
     panLastTouch = null;
     touchPanPendingDx = 0;
     touchPanPendingDy = 0;
+    // 짧은 지연 후 드래그 해제 — 같은 프레임의 라벨 touchend가 먼저 처리되도록
+    setTimeout(() => { mapFingerDragging = false; }, 50);
   }, { passive: true });
 
   container.addEventListener("touchcancel", () => {
     clearLongPress();
     multiTouchActive = false;
     pinchActive = false;
+    mapFingerDragging = false;
     panActive = false;
     panLastTouch = null;
     touchPanPendingDx = 0;
@@ -1054,43 +1065,80 @@ function drawMarketLabels() {
     content.style.setProperty("--sel-color", colors.dark);
     content.style.cursor = "pointer";
     content.style.touchAction = "manipulation";
-    // 터치·마우스 모두 동작 (짧은 시간에 중복 호출 방지)
+    // 터치·마우스 모두 동작 (다시 눌러 취소 텀 0.06초)
     let lastActivateAt = 0;
+    let labelTouchStartXY = null;
+    let labelFingerMoved = false;
+    const LABEL_DRAG_PX = 10; // 이 이상 움직이면 탭이 아니라 드래그로 간주
+    const LABEL_TOGGLE_MS = 60; // 다시 눌러 취소 텀
+
     const onLabelActivate = (e) => {
       if (e) {
         e.preventDefault();
         e.stopPropagation();
       }
       const now = Date.now();
-      // 두 손가락 제스처 중·직후, 또는 줌 직후에는 체크리스트를 열지 않음
+      // 드래그·핀치·줌 직후에는 라벨 강조하지 않음
+      if (mapFingerDragging) return;
       if (multiTouchActive) return;
+      if (labelFingerMoved) return;
       if (now - lastMultiTouchAt < 300) return;
       if (now - lastZoomAt < 300) return;
-      if (now - lastActivateAt < 400) return;
+      if (now - lastActivateAt < LABEL_TOGGLE_MS) return;
       lastActivateAt = now;
-      // 지도 롱프레스/클릭이 이어서 핀을 찍지 않도록
       ignoreClickUntil = now + 700;
       selectMarketByLabel(m.baseName);
     };
-    // 라벨 위에서 터치가 시작되면 지도 롱프레스 취소
+
     content.addEventListener("touchstart", (e) => {
-      // 두 손가락이면 라벨 처리 자체를 하지 않음
       if (e.touches.length >= 2) {
         multiTouchActive = true;
         lastMultiTouchAt = Date.now();
+        labelTouchStartXY = null;
+        labelFingerMoved = true;
         return;
       }
+      const t = e.touches[0];
+      labelTouchStartXY = t ? { x: t.clientX, y: t.clientY } : null;
+      labelFingerMoved = false;
       e.stopPropagation();
     }, { passive: true });
+
+    content.addEventListener("touchmove", (e) => {
+      if (!labelTouchStartXY || !e.touches[0]) return;
+      const t = e.touches[0];
+      const dist = Math.hypot(t.clientX - labelTouchStartXY.x, t.clientY - labelTouchStartXY.y);
+      if (dist > LABEL_DRAG_PX) {
+        labelFingerMoved = true;
+        mapFingerDragging = true;
+      }
+    }, { passive: true });
+
     content.addEventListener("mousedown", (e) => {
       e.stopPropagation();
     });
-    content.addEventListener("click", onLabelActivate);
-    content.addEventListener("touchend", (e) => {
-      // 핀치 줌 중·직후 touchend 로 라벨이 눌리는 것 방지
-      if (multiTouchActive || (e.touches && e.touches.length >= 1)) return;
-      if (Date.now() - lastMultiTouchAt < 300) return;
+    content.addEventListener("click", (e) => {
+      if (mapFingerDragging || labelFingerMoved) return;
       onLabelActivate(e);
+    });
+    content.addEventListener("touchend", (e) => {
+      if (multiTouchActive || (e.touches && e.touches.length >= 1)) {
+        labelTouchStartXY = null;
+        return;
+      }
+      if (Date.now() - lastMultiTouchAt < 300) {
+        labelTouchStartXY = null;
+        labelFingerMoved = false;
+        return;
+      }
+      // 끌어서 이동한 경우에는 강조하지 않음
+      if (mapFingerDragging || labelFingerMoved) {
+        labelTouchStartXY = null;
+        labelFingerMoved = false;
+        return;
+      }
+      onLabelActivate(e);
+      labelTouchStartXY = null;
     }, { passive: false });
     content.addEventListener("dblclick", (e) => {
       e.preventDefault();
