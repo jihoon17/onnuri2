@@ -85,15 +85,19 @@ html, body {
   color: #555;
 }
 
-/* 모바일: ▲/▼ 모두 배경 없이 화살표만 (양옆 투명) */
+/* 모바일: 지도 상단 중앙 오버레이 화살표 (▲/▼ 양옆 지도 노출) */
 .panel-toggle--bottom {
+  display: none;
   width: 44px;
   height: 28px;
-  margin: 0 auto;
+  margin: 0;
   border-radius: 0;
   border: none;
-  position: relative;
-  z-index: 5;
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 36;
   background: transparent;
   box-shadow: none;
 }
@@ -102,32 +106,25 @@ html, body {
   background: transparent;
   box-shadow: none;
 }
+@media (max-width: 599px) {
+  .panel-toggle--bottom {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
 .panel-toggle--side {
   display: none;
 }
 
-/* 목록 접힌 상태 (모바일): 목록·제목 숨기고 화살표 칩만 */
+/* 목록 접힌 상태 (모바일) */
 .side-panel.is-collapsed {
   max-height: none;
 }
-.side-panel.is-collapsed .result-list {
-  display: none;
-}
-.side-panel.is-collapsed .result-header {
-  display: none;
-}
+.side-panel.is-collapsed .result-list,
+.side-panel.is-collapsed .result-header,
 .side-panel.is-collapsed .result-section {
-  background: transparent;
-  border: none;
-  flex: 0 0 auto;
-}
-.side-panel.is-collapsed .panel-toggle--bottom {
-  width: 44px;
-  border-radius: 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
-  margin-top: 0;
+  display: none;
 }
 
 /* 검색 영역 */

@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>상점가 위치 검색 지도</title>
-<!-- v20260926a -->
-<link rel="stylesheet" href="style.css?v=20260926a">
+<!-- v20260926b -->
+<link rel="stylesheet" href="style.css?v=20260926b">
 <style>
-  /* ===== 강제 오버라이드 v20260926a ===== */
+  /* ===== 강제 오버라이드 v20260926b ===== */
   .panel-toggle-text { display: none !important; }
   .panel-toggle {
     display: flex !important;
@@ -19,11 +19,16 @@
     padding: 0 !important;
     cursor: pointer !important;
   }
-  /* 모바일 하단 화살표: ▲(위)·▼(아래) 모두 주변 완전 투명 */
+  /* 모바일 화살표: 지도 위 오버레이 — ▲/▼ 모두 배경 없이 양옆 지도 노출 */
   button.panel-toggle.panel-toggle--bottom {
+    position: absolute !important;
+    top: 0 !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    z-index: 36 !important;
     width: 44px !important;
     height: 28px !important;
-    margin: 0 auto !important;
+    margin: 0 !important;
     border-radius: 0 !important;
     border: none !important;
     background: transparent !important;
@@ -37,20 +42,14 @@
     box-shadow: none !important;
   }
   .panel-toggle--bottom .panel-toggle-icon {
-    color: #333 !important;
+    color: #222 !important;
     font-size: 18px !important;
     font-weight: 800 !important;
-    text-shadow: 0 0 4px #fff, 0 1px 2px rgba(255,255,255,0.95), 0 -1px 2px rgba(255,255,255,0.95);
+    text-shadow: 0 0 5px #fff, 0 1px 3px rgba(255,255,255,1), 0 -1px 3px rgba(255,255,255,1);
   }
   .side-panel.is-collapsed .result-list,
   .side-panel.is-collapsed .result-header { display: none !important; }
-  .side-panel.is-collapsed .result-section { background: transparent !important; }
-  .side-panel.is-collapsed button.panel-toggle.panel-toggle--bottom {
-    border: none !important;
-    background: transparent !important;
-    background-color: transparent !important;
-    box-shadow: none !important;
-  }
+  .side-panel.is-collapsed .result-section { background: transparent !important; display: none !important; }
   /* 사이드 화살표: 지도 왼쪽 중앙 (접기/펼치기 동일 위치) */
   .panel-toggle--side {
     display: none !important;
@@ -178,57 +177,24 @@
   }
 }
 
-/* 모바일: ▲(펼침)·▼(접힘) 모두 화살표 주변 투명 — 양옆 지도 노출 */
+/* 모바일: 화살표는 항상 지도 위 — 펼침/접힘 모두 양옆 지도 보임 */
 @media (max-width: 599px) {
-  .side-panel.is-collapsed,
-  .side-panel.is-collapsed .result-section,
-  .side-panel.is-collapsed .result-header {
-    background: transparent !important;
-    background-color: transparent !important;
-    border: 0 !important;
-    box-shadow: none !important;
-  }
-  .side-panel.is-collapsed .panel-toggle--bottom,
-  .panel-toggle--bottom {
-    background: transparent !important;
-    background-color: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-  }
-
-  /* 결과 목록 아래 화살표 줄: 흰 배경 없이 화살표만 (펼침 ▲ 상태) */
-  .result-section {
-    background: transparent !important;
-  }
-  .result-list {
-    /* 목록 자체 배경은 유지, 화살표 줄만 투명 */
-  }
-  .panel-toggle--bottom {
-    display: flex !important;
-    width: 44px !important;
-    max-width: 44px !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-  }
-
-  /* 접힌 상태: 화살표를 지도 위 오버레이로 — 양옆 지도 보임 */
-  .side-panel { position: relative !important; }
   .side-panel.is-collapsed .result-section {
-    position: absolute !important;
-    left: 0 !important;
-    right: 0 !important;
-    top: 100% !important;
-    height: auto !important;
-    z-index: 30 !important;
-    pointer-events: none !important;
-    background: transparent !important;
+    display: none !important;
   }
-  .side-panel.is-collapsed .result-section .panel-toggle--bottom {
-    pointer-events: auto !important;
+  button.panel-toggle.panel-toggle--bottom {
+    display: flex !important;
+    position: absolute !important;
+    top: 2px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    z-index: 36 !important;
+    width: 44px !important;
+    height: 28px !important;
     background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
   }
 }
 </style>
@@ -265,10 +231,6 @@
       <div class="result-list" id="resultList">
         <div class="result-empty">골목형상점가 데이터를 불러오는 중입니다…</div>
       </div>
-      <!-- 세로(모바일): 굴곡 화살표만 -->
-      <button type="button" class="panel-toggle panel-toggle--bottom" id="panelToggleBottom" aria-expanded="true" title="목록 접기/펼치기" aria-label="목록 접기">
-        <span class="panel-toggle-icon" aria-hidden="true">▲</span>
-      </button>
     </div>
   </div>
 
@@ -276,7 +238,11 @@
   <div class="map-panel">
     <div class="map-wrap">
       <div id="map"></div>
-      <!-- PC/패드: 지도 왼쪽 가장자리 중앙 화살표 (접기·펼치기 동일 위치) -->
+      <!-- 모바일: 지도 상단 중앙 화살표 — ▲/▼ 모두 지도 위에 떠서 양옆이 지도로 보임 -->
+      <button type="button" class="panel-toggle panel-toggle--bottom" id="panelToggleBottom" aria-expanded="true" title="목록 접기/펼치기" aria-label="목록 접기">
+        <span class="panel-toggle-icon" aria-hidden="true">▲</span>
+      </button>
+      <!-- PC/패드: 지도 왼쪽 가장자리 중앙 화살표 -->
       <button type="button" class="panel-toggle panel-toggle--side" id="panelToggleSide" aria-expanded="true" title="목록 접기/펼치기" aria-label="목록 접기">
         <span class="panel-toggle-icon" aria-hidden="true">◀</span>
       </button>
@@ -309,6 +275,6 @@
 <!-- 엑셀 파싱 라이브러리 (SheetJS) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 기능 로직 v20260924c -->
-<script src="app.js?v=20260926a"></script>
+<script src="app.js?v=20260926b"></script>
 </body>
 </html>
