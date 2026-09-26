@@ -2180,21 +2180,9 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     }
   }
 
-  // 접기 전 크기를 기억 → 다시 펼치면 복원 (컴퓨터 가로 폭 등)
-  let savedMaxHeight = "";
-  let savedWidth = "";
-  let savedMinWidth = "";
-  let savedMaxWidth = "";
-  let savedFlex = "";
-
+  // 다시 펼치면 사이트 최초 진입 크기(CSS 기본값)로 복원
   function setCollapsed(collapsed) {
     if (collapsed) {
-      // 접기 직전 크기 저장
-      savedMaxHeight = sidePanel.style.maxHeight || "";
-      savedWidth = sidePanel.style.width || "";
-      savedMinWidth = sidePanel.style.minWidth || "";
-      savedMaxWidth = sidePanel.style.maxWidth || "";
-      savedFlex = sidePanel.style.flex || "";
       sidePanel.classList.add("is-collapsed");
       sidePanel.style.maxHeight = "";
       sidePanel.style.width = "";
@@ -2203,14 +2191,12 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
       sidePanel.style.flex = "";
     } else {
       sidePanel.classList.remove("is-collapsed");
-      // 이전에 조절해 둔 크기가 있으면 복원
-      if (savedMaxHeight) sidePanel.style.maxHeight = savedMaxHeight;
-      if (savedWidth) {
-        sidePanel.style.width = savedWidth;
-        sidePanel.style.minWidth = savedMinWidth || savedWidth;
-        sidePanel.style.maxWidth = savedMaxWidth || savedWidth;
-        sidePanel.style.flex = savedFlex || "0 0 auto";
-      }
+      // 조절했던 인라인 크기 제거 → 처음 크기
+      sidePanel.style.maxHeight = "";
+      sidePanel.style.width = "";
+      sidePanel.style.minWidth = "";
+      sidePanel.style.maxWidth = "";
+      sidePanel.style.flex = "";
     }
     [btnBottom, btnSide].forEach((btn) => {
       if (!btn) return;
@@ -2260,23 +2246,18 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     function clampHeightByTypeFilters(desiredH) {
       const appH = window.innerHeight || 600;
       let next = Math.max(appH * 0.12, desiredH);
-      // 1차 적용 후 필터 위치 보고 보정
       sidePanel.style.maxHeight = next + "px";
       sidePanel.style.flex = "0 0 auto";
-      // 레이아웃 반영을 위해 강제 리플로우
       void sidePanel.offsetHeight;
       const filters = document.getElementById("typeFilterOptions");
       if (filters) {
         const fb = filters.getBoundingClientRect().bottom;
-        const limit = appH - 8; // 바닥 여백 8px
+        const limit = appH - 8;
         if (fb > limit) {
           next = Math.max(appH * 0.12, next - (fb - limit));
           sidePanel.style.maxHeight = next + "px";
         }
       }
-      // 저장값 갱신 (다시 펼칠 때 복원용)
-      savedMaxHeight = sidePanel.style.maxHeight;
-      savedFlex = sidePanel.style.flex;
       return next;
     }
 
@@ -2336,10 +2317,6 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
         sidePanel.style.flex = "0 0 auto";
         sidePanel.style.maxWidth = next + "px";
         sidePanel.style.minWidth = next + "px";
-        savedWidth = next + "px";
-        savedMinWidth = next + "px";
-        savedMaxWidth = next + "px";
-        savedFlex = "0 0 auto";
         relayoutMapSoon();
       }
     }
