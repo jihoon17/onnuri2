@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>상점가 위치 검색 지도</title>
-<!-- v20260926b -->
-<link rel="stylesheet" href="style.css?v=20260926b">
+<!-- v20260926c -->
+<link rel="stylesheet" href="style.css?v=20260926c">
 <style>
-  /* ===== 강제 오버라이드 v20260926b ===== */
+  /* ===== 강제 오버라이드 v20260926c ===== */
   .panel-toggle-text { display: none !important; }
   .panel-toggle {
     display: flex !important;
@@ -19,33 +19,35 @@
     padding: 0 !important;
     cursor: pointer !important;
   }
-  /* 모바일 화살표: 지도 위 오버레이 — ▲/▼ 모두 배경 없이 양옆 지도 노출 */
+  /* 모바일 화살표 칩: 네이버 사이드 버튼을 90° 돌린 형태
+     — 위(평면)는 검색/목록에 붙고, 아래만 둥글게, 양옆은 지도 */
   button.panel-toggle.panel-toggle--bottom {
     position: absolute !important;
     top: 0 !important;
     left: 50% !important;
     transform: translateX(-50%) !important;
     z-index: 36 !important;
-    width: 44px !important;
-    height: 28px !important;
+    width: 48px !important;
+    height: 30px !important;
     margin: 0 !important;
-    border-radius: 0 !important;
-    border: none !important;
-    background: transparent !important;
-    background-color: transparent !important;
-    box-shadow: none !important;
+    /* 위는 평평(검색창에 붙음), 아래만 둥글게 */
+    border-radius: 0 0 12px 12px !important;
+    border: 1px solid rgba(0,0,0,0.12) !important;
+    border-top: none !important;
+    background: #fff !important;
+    background-color: #fff !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12) !important;
   }
   button.panel-toggle.panel-toggle--bottom:hover,
   button.panel-toggle.panel-toggle--bottom:active {
-    background: transparent !important;
-    background-color: transparent !important;
-    box-shadow: none !important;
+    background: #fafafa !important;
+    background-color: #fafafa !important;
   }
   .panel-toggle--bottom .panel-toggle-icon {
-    color: #222 !important;
-    font-size: 18px !important;
-    font-weight: 800 !important;
-    text-shadow: 0 0 5px #fff, 0 1px 3px rgba(255,255,255,1), 0 -1px 3px rgba(255,255,255,1);
+    color: #444 !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    text-shadow: none !important;
   }
   .side-panel.is-collapsed .result-list,
   .side-panel.is-collapsed .result-header { display: none !important; }
@@ -177,24 +179,28 @@
   }
 }
 
-/* 모바일: 화살표는 항상 지도 위 — 펼침/접힘 모두 양옆 지도 보임 */
+/* 모바일: 화살표 칩 — 평면은 검색/목록에 붙고, 둥근 쪽은 지도 방향 */
 @media (max-width: 599px) {
   .side-panel.is-collapsed .result-section {
     display: none !important;
   }
   button.panel-toggle.panel-toggle--bottom {
     display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
     position: absolute !important;
-    top: 2px !important;
+    top: 0 !important;
     left: 50% !important;
     transform: translateX(-50%) !important;
     z-index: 36 !important;
-    width: 44px !important;
-    height: 28px !important;
-    background: transparent !important;
-    background-color: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
+    width: 48px !important;
+    height: 30px !important;
+    border-radius: 0 0 12px 12px !important;
+    border: 1px solid rgba(0,0,0,0.12) !important;
+    border-top: none !important;
+    background: #fff !important;
+    background-color: #fff !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12) !important;
   }
 }
 </style>
@@ -275,6 +281,6 @@
 <!-- 엑셀 파싱 라이브러리 (SheetJS) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 기능 로직 v20260924c -->
-<script src="app.js?v=20260926b"></script>
+<script src="app.js?v=20260926c"></script>
 </body>
 </html>

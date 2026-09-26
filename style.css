@@ -85,26 +85,26 @@ html, body {
   color: #555;
 }
 
-/* 모바일: 지도 상단 중앙 오버레이 화살표 (▲/▼ 양옆 지도 노출) */
+/* 모바일: 네이버 사이드 칩을 90° 돌린 형태 — 위 평면=검색창에 붙음, 아래만 둥글게 */
 .panel-toggle--bottom {
   display: none;
-  width: 44px;
-  height: 28px;
+  width: 48px;
+  height: 30px;
   margin: 0;
-  border-radius: 0;
-  border: none;
+  border-radius: 0 0 12px 12px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-top: none;
   position: absolute;
-  top: 2px;
+  top: 0;
   left: 50%;
   transform: translateX(-50%);
   z-index: 36;
-  background: transparent;
-  box-shadow: none;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
 }
 .panel-toggle--bottom:hover,
 .panel-toggle--bottom:active {
-  background: transparent;
-  box-shadow: none;
+  background: #fafafa;
 }
 @media (max-width: 599px) {
   .panel-toggle--bottom {
