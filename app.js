@@ -212,7 +212,7 @@ function initMap() {
       e.preventDefault();
       e.stopPropagation();
       if (!map) return;
-      try { map.setLevel(Math.max(1, map.getLevel() - 1), { animate: true }); } catch (_) { map.setLevel(Math.max(1, map.getLevel() - 1)); }
+      try { map.setLevel(Math.max(1, map.getLevel() - 1), { animate: false }); } catch (_) { map.setLevel(Math.max(1, map.getLevel() - 1)); }
     });
   }
   if (zoomOutBtn) {
@@ -220,7 +220,7 @@ function initMap() {
       e.preventDefault();
       e.stopPropagation();
       if (!map) return;
-      try { map.setLevel(Math.min(14, map.getLevel() + 1), { animate: true }); } catch (_) { map.setLevel(Math.min(14, map.getLevel() + 1)); }
+      try { map.setLevel(Math.min(14, map.getLevel() + 1), { animate: false }); } catch (_) { map.setLevel(Math.min(14, map.getLevel() + 1)); }
     });
   }
 
@@ -251,17 +251,12 @@ function initMap() {
   let touchPanPendingDy = 0;
   let touchPanRaf = null;
 
-  // 두 손가락 핀치 줌 — + 버튼 연속 연타처럼 1레벨씩 순차 적용
+  // 두 손가락 핀치 줌 — 마우스 휠처럼 "툭툭툭" 1레벨씩 끊어서 적용
   let pinchActive = false;
   let pinchStartDist = 0;
-  let pinchStartLevel = 4;
-  let pinchTargetLevel = null;   // 손가락 위치가 가리키는 목표 레벨
-  let pinchStepTimer = null;     // 순차 setLevel 타이머
-  let pinchStepping = false;
-  // 거리 비율 → 레벨 변화. SENS=1.5 → 약 1.5배 벌리면 1단계
-  const PINCH_LEVEL_SENS = 0.9;
-  // + 버튼 연타 간격과 비슷하게 (지도·구역이 같이 따라오도록)
-  const PINCH_STEP_MS = 260;
+  // 이 비율을 넘을 때마다 1단계 (휠 한 칸과 동일)
+  const PINCH_IN_RATIO = 1.18;   // 18% 이상 벌리면 확대 1단계
+  const PINCH_OUT_RATIO = 0.85;  // 15% 이상 모으면 축소 1단계
 
   const LONG_PRESS_MS = 550;
   const MOVE_CANCEL_PX = 10;
@@ -269,11 +264,10 @@ function initMap() {
   const MIN_LEVEL = 1;
   const MAX_LEVEL = 14;
 
-  // 기기별 손 드래그 감도 (빙판 느낌 제거 + 패드 더 낮게)
   function getTouchPanSensitivity() {
     const w = window.innerWidth || 400;
-    if (w >= 600) return 1.0; // 패드: 손가락 이동과 지도 이동을 1:1에 가깝게
-    return 1.0; // 핸드폰: 손가락 이동과 지도 이동을 1:1에 가깝게
+    if (w >= 600) return 1.0;
+    return 1.0;
   }
 
   function flushTouchPan() {
@@ -297,49 +291,20 @@ function initMap() {
     if (touchPanRaf == null) touchPanRaf = requestAnimationFrame(flushTouchPan);
   }
 
-  // + 버튼을 연속으로 누르듯, 목표 레벨까지 1단계씩 순차 적용
-  function stopPinchStepping() {
-    if (pinchStepTimer != null) {
-      clearTimeout(pinchStepTimer);
-      pinchStepTimer = null;
-    }
-    pinchStepping = false;
-  }
-
-  function stepPinchTowardTarget() {
-    pinchStepTimer = null;
-    if (!map || pinchTargetLevel == null) {
-      pinchStepping = false;
-      return;
-    }
+  /** 마우스 휠 한 칸처럼 레벨 1단계만 바꾸고, 기준 거리를 리셋 → 툭툭툭 */
+  function applyDiscretePinchStep(dir, currentDist) {
+    if (!map) return;
     const cur = map.getLevel();
-    const target = pinchTargetLevel;
-    if (cur === target) {
-      pinchStepping = false;
-      return;
-    }
-    const next = cur + (target < cur ? -1 : 1);
+    const next = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, cur + dir));
+    if (next === cur) return;
     try {
-      map.setLevel(next, { animate: true });
+      map.setLevel(next, { animate: false });
     } catch (_) {
       map.setLevel(next);
     }
     lastZoomAt = Date.now();
-    if (next !== target) {
-      pinchStepping = true;
-      pinchStepTimer = setTimeout(stepPinchTowardTarget, PINCH_STEP_MS);
-    } else {
-      pinchStepping = false;
-    }
-  }
-
-  function requestPinchTarget(level) {
-    pinchTargetLevel = level;
-    if (!pinchStepping) {
-      pinchStepping = true;
-      // 바로 1단계 진행 후, 나머지는 간격 두고 연타
-      stepPinchTowardTarget();
-    }
+    // 다음 1단계를 위해 기준 거리 재설정 (연속 점프 방지)
+    pinchStartDist = currentDist || pinchStartDist;
   }
 
   const isInteractiveTarget = (target) => {
@@ -419,11 +384,8 @@ function initMap() {
       clearLongPress();
       panActive = false;
       panLastTouch = null;
-      stopPinchStepping();
       pinchActive = true;
       pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
-      pinchStartLevel = map ? map.getLevel() : 4;
-      pinchTargetLevel = pinchStartLevel;
       return;
     }
 
@@ -438,7 +400,7 @@ function initMap() {
   }, { passive: true });
 
   container.addEventListener("touchmove", (e) => {
-    // ----- 두 손가락: 핀치 줌 (+ 버튼 연속 연타처럼 목표까지 1레벨씩) -----
+    // ----- 두 손가락: 핀치 줌 (마우스 휠처럼 임계값마다 1레벨 — 툭툭툭) -----
     if (e.touches.length >= 2) {
       multiTouchActive = true;
       lastMultiTouchAt = Date.now();
@@ -449,19 +411,17 @@ function initMap() {
       if (!pinchActive) {
         pinchActive = true;
         pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
-        pinchStartLevel = map ? map.getLevel() : 4;
-        pinchTargetLevel = pinchStartLevel;
       }
 
       e.preventDefault();
       if (!map) return;
       const dist = touchDist(e.touches[0], e.touches[1]) || pinchStartDist;
       const ratio = dist / (pinchStartDist || 1);
-      // 벌리면 확대(레벨↓), 모으면 축소(레벨↑)
-      const rawDelta = -Math.round(Math.log2(Math.max(0.25, Math.min(4, ratio))) * PINCH_LEVEL_SENS);
-      const target = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, pinchStartLevel + rawDelta));
-      if (target !== pinchTargetLevel) {
-        requestPinchTarget(target);
+      // 카카오: level 작을수록 확대 → 벌리면 -1, 모으면 +1
+      if (ratio >= PINCH_IN_RATIO) {
+        applyDiscretePinchStep(-1, dist);
+      } else if (ratio <= PINCH_OUT_RATIO) {
+        applyDiscretePinchStep(1, dist);
       }
       return;
     }
