@@ -251,14 +251,14 @@ function initMap() {
   let touchPanPendingDy = 0;
   let touchPanRaf = null;
 
-  // 두 손가락 핀치 줌 — 네이버맵처럼 천천히 1단계씩 (과한 확대/축소 방지)
+  // 두 손가락 핀치 줌 — 손가락 이동량에 비례 (과확대 방지, GAIN 낮음)
   let pinchActive = false;
   let pinchStartDist = 0;
-  let pinchLastStepAt = 0;
-  // 손가락을 더 많이 움직여야 1단계 (감도 추가 하향)
-  const PINCH_IN_RATIO = 1.55;   // ~55% 벌려야 확대 1단계
-  const PINCH_OUT_RATIO = 0.65;  // ~35% 모아야 축소 1단계
-  const PINCH_STEP_COOLDOWN_MS = 180; // 단계 사이 최소 간격
+  let pinchStartLevel = 4;
+  let pinchAppliedLevel = null;
+  // log2(2)=1 → GAIN 0.45면 거리 2배여야 약 0.45레벨 ≈ 거의 반 단계 감도
+  // 거리 약 4.3배일 때 1레벨 (손가락만큼만 천천히)
+  const PINCH_GAIN = 0.45;
 
   const LONG_PRESS_MS = 550;
   const MOVE_CANCEL_PX = 10;
@@ -293,22 +293,29 @@ function initMap() {
     if (touchPanRaf == null) touchPanRaf = requestAnimationFrame(flushTouchPan);
   }
 
-  /** 1레벨만 + 짧은 애니 → 덜 급하고 구역·지도가 같이 따라옴 */
-  function applyDiscretePinchStep(dir, currentDist) {
-    if (!map) return;
-    const now = Date.now();
-    if (now - pinchLastStepAt < PINCH_STEP_COOLDOWN_MS) return;
+  /** 제스처 시작 거리 대비 현재 거리 → 목표 레벨 (손가락 움직임에 비례) */
+  function applyProportionalPinch(currentDist) {
+    if (!map || !pinchStartDist) return;
+    const ratio = currentDist / pinchStartDist;
+    // 벌림(ratio>1) → 확대 → level 감소
+    const delta = -Math.log2(Math.max(0.25, Math.min(4, ratio))) * PINCH_GAIN;
+    const target = Math.max(
+      MIN_LEVEL,
+      Math.min(MAX_LEVEL, Math.round(pinchStartLevel + delta))
+    );
+    if (pinchAppliedLevel === target) return;
     const cur = map.getLevel();
-    const next = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, cur + dir));
-    if (next === cur) return;
-    try {
-      map.setLevel(next, { animate: true });
-    } catch (_) {
-      map.setLevel(next);
+    if (cur === target) {
+      pinchAppliedLevel = target;
+      return;
     }
-    pinchLastStepAt = now;
-    lastZoomAt = now;
-    pinchStartDist = currentDist || pinchStartDist;
+    try {
+      map.setLevel(target, { animate: false });
+    } catch (_) {
+      map.setLevel(target);
+    }
+    pinchAppliedLevel = target;
+    lastZoomAt = Date.now();
   }
 
   const isInteractiveTarget = (target) => {
@@ -390,6 +397,8 @@ function initMap() {
       panLastTouch = null;
       pinchActive = true;
       pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
+      pinchStartLevel = map ? map.getLevel() : 4;
+      pinchAppliedLevel = pinchStartLevel;
       return;
     }
 
@@ -404,7 +413,7 @@ function initMap() {
   }, { passive: true });
 
   container.addEventListener("touchmove", (e) => {
-    // ----- 두 손가락: 핀치 줌 (마우스 휠처럼 임계값마다 1레벨 — 툭툭툭) -----
+    // ----- 두 손가락: 핀치 줌 (손가락 이동량에 비례한 확대/축소) -----
     if (e.touches.length >= 2) {
       multiTouchActive = true;
       lastMultiTouchAt = Date.now();
@@ -415,18 +424,14 @@ function initMap() {
       if (!pinchActive) {
         pinchActive = true;
         pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
+        pinchStartLevel = map ? map.getLevel() : 4;
+        pinchAppliedLevel = pinchStartLevel;
       }
 
       e.preventDefault();
       if (!map) return;
       const dist = touchDist(e.touches[0], e.touches[1]) || pinchStartDist;
-      const ratio = dist / (pinchStartDist || 1);
-      // 카카오: level 작을수록 확대 → 벌리면 -1, 모으면 +1
-      if (ratio >= PINCH_IN_RATIO) {
-        applyDiscretePinchStep(-1, dist);
-      } else if (ratio <= PINCH_OUT_RATIO) {
-        applyDiscretePinchStep(1, dist);
-      }
+      applyProportionalPinch(dist);
       return;
     }
 
@@ -2127,6 +2132,12 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
   const toggle = () => setCollapsed(!sidePanel.classList.contains("is-collapsed"));
   if (btnBottom) btnBottom.addEventListener("click", toggle);
   if (btnSide) btnSide.addEventListener("click", toggle);
+
+  // 핸드폰: 처음에는 목록을 접은 상태(▼)로 시작
+  const isMobile = window.matchMedia && window.matchMedia("(max-width: 599px)").matches;
+  if (isMobile) {
+    setCollapsed(true);
+  }
 })();
 
 /* -------- 지도 조이스틱 (터치·마우스·키보드 화살표) -------- */
