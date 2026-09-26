@@ -50,6 +50,7 @@ let lastZoomAt = 0;             // 줌 직후 라벨 탭으로 체크리스트 �
 let multiTouchActive = false;   // 두 손가락(핀치 줌) 중이면 true
 let lastMultiTouchAt = 0;       // 멀티터치 종료 시각 (직후 라벨 탭 무시)
 let mapFingerDragging = false;  // 한 손가락으로 지도 끄는 중이면 라벨 탭 무시
+let cancelMapLongPress = null;  // initMap에서 등록: 라벨 탭 시 꾹누르기 핀 취소
 let checklistMarket = null;     // 체크리스트가 열려있는 상점가 (null이면 닫힘)
 let checklistOverlay = null;    // 체크리스트 흰색 박스(CustomOverlay)
 let checklistHighlights = {};   // parcelId -> kakao.maps.Polygon (체크리스트에서 켠 주소 강조)
@@ -342,6 +343,7 @@ function initMap() {
     }
     longPressStartXY = null;
   };
+  cancelMapLongPress = clearLongPress;
 
   const safeMapPick = (latlng) => {
     if (!latlng) return;
@@ -417,6 +419,13 @@ function initMap() {
       pinchActive = false;
       const t = e.touches[0];
       panActive = false;
+      // 라벨 위에서는 꾹 누르기 핀(보라색) 생성하지 않음
+      if (e.target && e.target.closest && e.target.closest(".market-label")) {
+        clearLongPress();
+        panLastTouch = { x: t.clientX, y: t.clientY };
+        // 드래그는 가능, 롱프레스만 막음
+        return;
+      }
       panLastTouch = { x: t.clientX, y: t.clientY };
       startLongPress(t.clientX, t.clientY);
     }
@@ -1102,7 +1111,8 @@ function drawMarketLabels() {
       if (now - lastZoomAt < 300) return;
       if (now - lastActivateAt < LABEL_TOGGLE_MS) return;
       lastActivateAt = now;
-      ignoreClickUntil = now + 700;
+      ignoreClickUntil = now + 900;
+      if (typeof cancelMapLongPress === "function") cancelMapLongPress();
       selectMarketByLabel(m.baseName);
     };
 
@@ -2217,9 +2227,10 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
   const toggle = () => setCollapsed(!sidePanel.classList.contains("is-collapsed"));
 
   // 짧게 탭 = 접기/펼치기 (펼치면 항상 처음 크기)
-  // 0.8초 길게 누른 뒤 드래그 = 크기 조절
+  // 0.8초 길게 누른 뒤 드래그 = 크기 조절 (터치·마우스 모두)
   function bindResizeHandle(btn, axis) {
     if (!btn) return;
+    btn.style.touchAction = "none";
     let startX = 0, startY = 0;
     let startH = 0, startW = 0;
     let active = false;
@@ -2227,9 +2238,8 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     let resizing = false;
     let cancelled = false;
     let longPressTimer = null;
-    let pointerId = null;
     const LONG_PRESS_MS = 800;
-    const MOVE_CANCEL_PX = 12;
+    const MOVE_CANCEL_PX = 14;
 
     function clearLongTimer() {
       if (longPressTimer != null) {
@@ -2240,54 +2250,61 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
 
     function captureSize() {
       const rect = sidePanel.getBoundingClientRect();
-      startH = rect.height;
-      startW = rect.width;
+      startH = Math.max(rect.height, 1);
+      startW = Math.max(rect.width, 1);
     }
 
-    /** 모바일: height를 직접 지정해야 아래로 늘어남 (max-height만으로는 안 늘어남) */
     function applyMobileHeight(desiredH) {
       const appH = window.innerHeight || 600;
       let next = Math.max(Math.round(appH * 0.15), Math.round(desiredH));
-      // 지도가 너무 안 보이게 막기
       next = Math.min(next, Math.round(appH * 0.75));
-      sidePanel.style.flex = "0 0 auto";
-      sidePanel.style.height = next + "px";
-      sidePanel.style.maxHeight = next + "px";
-      sidePanel.style.minHeight = "0";
+      sidePanel.classList.remove("is-collapsed");
+      sidePanel.style.setProperty("flex", "0 0 auto", "important");
+      sidePanel.style.setProperty("height", next + "px", "important");
+      sidePanel.style.setProperty("max-height", next + "px", "important");
+      sidePanel.style.setProperty("min-height", "0", "important");
       void sidePanel.offsetHeight;
-      // 골목형상점가 칩이 바닥에 닿으면 더 이상 안 늘림
       const filters = document.getElementById("typeFilterOptions");
       if (filters) {
         const fb = filters.getBoundingClientRect().bottom;
         const limit = appH - 8;
         if (fb > limit) {
           next = Math.max(Math.round(appH * 0.15), next - (fb - limit));
-          sidePanel.style.height = next + "px";
-          sidePanel.style.maxHeight = next + "px";
+          sidePanel.style.setProperty("height", next + "px", "important");
+          sidePanel.style.setProperty("max-height", next + "px", "important");
         }
       }
+      try { if (map && map.relayout) map.relayout(); } catch (_) {}
       return next;
     }
 
     function applyDesktopWidth(desiredW) {
       const appW = window.innerWidth || 400;
       let next = Math.max(180, Math.min(Math.round(appW * 0.55), Math.round(desiredW)));
-      sidePanel.style.flex = "0 0 " + next + "px";
-      sidePanel.style.width = next + "px";
-      sidePanel.style.minWidth = next + "px";
-      sidePanel.style.maxWidth = next + "px";
+      sidePanel.classList.remove("is-collapsed");
+      sidePanel.style.setProperty("flex", "0 0 " + next + "px", "important");
+      sidePanel.style.setProperty("width", next + "px", "important");
+      sidePanel.style.setProperty("min-width", next + "px", "important");
+      sidePanel.style.setProperty("max-width", next + "px", "important");
+      try { if (map && map.relayout) map.relayout(); } catch (_) {}
       return next;
     }
 
+    function getPoint(e) {
+      if (e.touches && e.touches[0]) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      if (e.changedTouches && e.changedTouches[0]) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+      return { x: e.clientX, y: e.clientY };
+    }
+
     function onDown(e) {
-      if (e.button != null && e.button !== 0) return;
+      if (e.type === "mousedown" && e.button !== 0) return;
       active = true;
       longPressReady = false;
       resizing = false;
       cancelled = false;
-      pointerId = e.pointerId != null ? e.pointerId : "touch";
-      startX = e.clientX;
-      startY = e.clientY;
+      const p = getPoint(e);
+      startX = p.x;
+      startY = p.y;
       captureSize();
       clearLongTimer();
       longPressTimer = setTimeout(() => {
@@ -2296,21 +2313,23 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
         longPressReady = true;
         if (sidePanel.classList.contains("is-collapsed")) {
           setCollapsed(false);
-          // 펼친 뒤 실제 높이 다시 측정
           void sidePanel.offsetHeight;
         }
         captureSize();
         btn.classList.add("is-resizing");
       }, LONG_PRESS_MS);
-      try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+      if (e.pointerId != null) {
+        try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+      }
       e.preventDefault();
+      e.stopPropagation();
     }
 
     function onMove(e) {
       if (!active) return;
-      if (e.pointerId != null && pointerId !== "touch" && e.pointerId !== pointerId) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
+      const p = getPoint(e);
+      const dx = p.x - startX;
+      const dy = p.y - startY;
       const dist = Math.hypot(dx, dy);
 
       if (!longPressReady && dist > MOVE_CANCEL_PX) {
@@ -2321,17 +2340,9 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
       if (!longPressReady) return;
 
       resizing = true;
-      if (axis === "y") {
-        applyMobileHeight(startH + dy);
-        if (map && typeof map.relayout === "function") {
-          try { map.relayout(); } catch (_) {}
-        }
-      } else {
-        applyDesktopWidth(startW + dx);
-        if (map && typeof map.relayout === "function") {
-          try { map.relayout(); } catch (_) {}
-        }
-      }
+      e.preventDefault();
+      if (axis === "y") applyMobileHeight(startH + dy);
+      else applyDesktopWidth(startW + dx);
     }
 
     function onUp(e) {
@@ -2339,7 +2350,9 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
       active = false;
       clearLongTimer();
       btn.classList.remove("is-resizing");
-      try { btn.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (e && e.pointerId != null) {
+        try { btn.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
 
       if (resizing) {
         resizing = false;
@@ -2358,6 +2371,11 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     btn.addEventListener("pointermove", onMove);
     btn.addEventListener("pointerup", onUp);
     btn.addEventListener("pointercancel", onUp);
+    // iOS 등 pointer가 불안정할 때 터치 폴백
+    btn.addEventListener("touchstart", onDown, { passive: false });
+    btn.addEventListener("touchmove", onMove, { passive: false });
+    btn.addEventListener("touchend", onUp, { passive: false });
+    btn.addEventListener("touchcancel", onUp, { passive: false });
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
