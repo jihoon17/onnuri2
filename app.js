@@ -251,12 +251,14 @@ function initMap() {
   let touchPanPendingDy = 0;
   let touchPanRaf = null;
 
-  // 두 손가락 핀치 줌 — 마우스 휠처럼 "툭툭툭" 1레벨씩 끊어서 적용
+  // 두 손가락 핀치 줌 — 네이버맵처럼 천천히 1단계씩 (과한 확대/축소 방지)
   let pinchActive = false;
   let pinchStartDist = 0;
-  // 이 비율을 넘을 때마다 1단계 (휠 한 칸과 동일)
-  const PINCH_IN_RATIO = 1.18;   // 18% 이상 벌리면 확대 1단계
-  const PINCH_OUT_RATIO = 0.85;  // 15% 이상 모으면 축소 1단계
+  let pinchLastStepAt = 0;
+  // 손가락을 더 많이 움직여야 1단계 (덜 민감 → 더 세밀하게)
+  const PINCH_IN_RATIO = 1.32;   // ~32% 벌려야 확대 1단계
+  const PINCH_OUT_RATIO = 0.76;  // ~24% 모아야 축소 1단계
+  const PINCH_STEP_COOLDOWN_MS = 140; // 단계 사이 최소 간격
 
   const LONG_PRESS_MS = 550;
   const MOVE_CANCEL_PX = 10;
@@ -291,19 +293,21 @@ function initMap() {
     if (touchPanRaf == null) touchPanRaf = requestAnimationFrame(flushTouchPan);
   }
 
-  /** 마우스 휠 한 칸처럼 레벨 1단계만 바꾸고, 기준 거리를 리셋 → 툭툭툭 */
+  /** 1레벨만 + 짧은 애니 → 덜 급하고 구역·지도가 같이 따라옴 */
   function applyDiscretePinchStep(dir, currentDist) {
     if (!map) return;
+    const now = Date.now();
+    if (now - pinchLastStepAt < PINCH_STEP_COOLDOWN_MS) return;
     const cur = map.getLevel();
     const next = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, cur + dir));
     if (next === cur) return;
     try {
-      map.setLevel(next, { animate: false });
+      map.setLevel(next, { animate: true });
     } catch (_) {
       map.setLevel(next);
     }
-    lastZoomAt = Date.now();
-    // 다음 1단계를 위해 기준 거리 재설정 (연속 점프 방지)
+    pinchLastStepAt = now;
+    lastZoomAt = now;
     pinchStartDist = currentDist || pinchStartDist;
   }
 
