@@ -2204,33 +2204,56 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
 
   const toggle = () => setCollapsed(!sidePanel.classList.contains("is-collapsed"));
 
-  // 화살표: 짧게 탭 = 접기/펼치기, 누른 채 드래그 = 패널 크기 조절
+  // 짧게 탭 = 접기/펼치기
+  // 약 1초 길게 누른 뒤 드래그 = 패널 크기 조절
   function bindResizeHandle(btn, axis) {
     if (!btn) return;
     let startX = 0, startY = 0;
     let startH = 0, startW = 0;
-    let dragging = false;
     let active = false;
+    let longPressReady = false;
+    let resizing = false;
+    let cancelled = false;
+    let longPressTimer = null;
     let pointerId = null;
-    const DRAG_THRESHOLD = 8;
+    const LONG_PRESS_MS = 1000;
+    const MOVE_CANCEL_PX = 12;
+
+    function clearLongTimer() {
+      if (longPressTimer != null) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    }
+
+    function captureSize() {
+      const rect = sidePanel.getBoundingClientRect();
+      startH = rect.height;
+      startW = rect.width;
+    }
 
     function onDown(e) {
       if (e.button != null && e.button !== 0) return;
       active = true;
-      dragging = false;
+      longPressReady = false;
+      resizing = false;
+      cancelled = false;
       pointerId = e.pointerId != null ? e.pointerId : "touch";
       startX = e.clientX;
       startY = e.clientY;
-      const rect = sidePanel.getBoundingClientRect();
-      startH = rect.height;
-      startW = rect.width;
-      // 접힌 상태에서 드래그 시작하면 먼저 펼침
-      if (sidePanel.classList.contains("is-collapsed")) {
-        setCollapsed(false);
-        const r2 = sidePanel.getBoundingClientRect();
-        startH = r2.height;
-        startW = r2.width;
-      }
+      captureSize();
+      clearLongTimer();
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        if (!active || cancelled) return;
+        longPressReady = true;
+        // 크기 조절 모드 진입: 접혀 있으면 펼침
+        if (sidePanel.classList.contains("is-collapsed")) {
+          setCollapsed(false);
+        }
+        captureSize();
+        btn.classList.add("is-resizing");
+      }, LONG_PRESS_MS);
       try { btn.setPointerCapture(e.pointerId); } catch (_) {}
       e.preventDefault();
     }
@@ -2240,19 +2263,26 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
       if (e.pointerId != null && pointerId !== "touch" && e.pointerId !== pointerId) return;
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
-      if (!dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-      dragging = true;
+      const dist = Math.hypot(dx, dy);
+
+      // 1초 전에 움직이면 길게 누르기 취소 (탭도 하지 않음)
+      if (!longPressReady && dist > MOVE_CANCEL_PX) {
+        clearLongTimer();
+        cancelled = true;
+        return;
+      }
+      if (!longPressReady) return;
+
+      resizing = true;
       const appH = window.innerHeight || 600;
       const appW = window.innerWidth || 400;
 
       if (axis === "y") {
-        // 모바일: 세로로 패널 높이 조절 (아래로 끌면 목록 커짐)
         let next = startH + dy;
         next = Math.max(appH * 0.12, Math.min(appH * 0.7, next));
         sidePanel.style.maxHeight = next + "px";
         sidePanel.style.flex = "0 0 auto";
       } else {
-        // PC: 가로로 패널 너비 조절 (오른쪽으로 끌면 목록 커짐)
         let next = startW + dx;
         next = Math.max(180, Math.min(appW * 0.55, next));
         sidePanel.style.width = next + "px";
@@ -2266,21 +2296,28 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     function onUp(e) {
       if (!active) return;
       active = false;
+      clearLongTimer();
+      btn.classList.remove("is-resizing");
       try { btn.releasePointerCapture(e.pointerId); } catch (_) {}
-      if (dragging) {
-        // 드래그로 크기 조절했으면 접기 토글은 하지 않음
-        dragging = false;
+
+      if (resizing) {
+        resizing = false;
+        longPressReady = false;
         relayoutMapSoon();
         return;
       }
-      toggle();
+      // 짧게 탭만 접기/펼치기
+      if (!cancelled && !longPressReady) {
+        toggle();
+      }
+      longPressReady = false;
+      cancelled = false;
     }
 
     btn.addEventListener("pointerdown", onDown);
     btn.addEventListener("pointermove", onMove);
     btn.addEventListener("pointerup", onUp);
     btn.addEventListener("pointercancel", onUp);
-    // click 기본 토글은 막고 pointerup에서 처리
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
