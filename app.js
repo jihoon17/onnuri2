@@ -2180,13 +2180,37 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     }
   }
 
+  // 접기 전 크기를 기억 → 다시 펼치면 복원 (컴퓨터 가로 폭 등)
+  let savedMaxHeight = "";
+  let savedWidth = "";
+  let savedMinWidth = "";
+  let savedMaxWidth = "";
+  let savedFlex = "";
+
   function setCollapsed(collapsed) {
-    sidePanel.classList.toggle("is-collapsed", collapsed);
     if (collapsed) {
-      // 접을 때 인라인 크기 초기화
+      // 접기 직전 크기 저장
+      savedMaxHeight = sidePanel.style.maxHeight || "";
+      savedWidth = sidePanel.style.width || "";
+      savedMinWidth = sidePanel.style.minWidth || "";
+      savedMaxWidth = sidePanel.style.maxWidth || "";
+      savedFlex = sidePanel.style.flex || "";
+      sidePanel.classList.add("is-collapsed");
       sidePanel.style.maxHeight = "";
       sidePanel.style.width = "";
+      sidePanel.style.minWidth = "";
+      sidePanel.style.maxWidth = "";
       sidePanel.style.flex = "";
+    } else {
+      sidePanel.classList.remove("is-collapsed");
+      // 이전에 조절해 둔 크기가 있으면 복원
+      if (savedMaxHeight) sidePanel.style.maxHeight = savedMaxHeight;
+      if (savedWidth) {
+        sidePanel.style.width = savedWidth;
+        sidePanel.style.minWidth = savedMinWidth || savedWidth;
+        sidePanel.style.maxWidth = savedMaxWidth || savedWidth;
+        sidePanel.style.flex = savedFlex || "0 0 auto";
+      }
     }
     [btnBottom, btnSide].forEach((btn) => {
       if (!btn) return;
@@ -2205,7 +2229,7 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
   const toggle = () => setCollapsed(!sidePanel.classList.contains("is-collapsed"));
 
   // 짧게 탭 = 접기/펼치기
-  // 약 1초 길게 누른 뒤 드래그 = 패널 크기 조절
+  // 0.8초 길게 누른 뒤 드래그 = 패널 크기 조절
   function bindResizeHandle(btn, axis) {
     if (!btn) return;
     let startX = 0, startY = 0;
@@ -2216,7 +2240,7 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     let cancelled = false;
     let longPressTimer = null;
     let pointerId = null;
-    const LONG_PRESS_MS = 1000;
+    const LONG_PRESS_MS = 800;
     const MOVE_CANCEL_PX = 12;
 
     function clearLongTimer() {
@@ -2230,6 +2254,30 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
       const rect = sidePanel.getBoundingClientRect();
       startH = rect.height;
       startW = rect.width;
+    }
+
+    /** 골목형상점가 칩이 화면 바닥에 닿지 않도록 최대 높이 계산 */
+    function clampHeightByTypeFilters(desiredH) {
+      const appH = window.innerHeight || 600;
+      let next = Math.max(appH * 0.12, desiredH);
+      // 1차 적용 후 필터 위치 보고 보정
+      sidePanel.style.maxHeight = next + "px";
+      sidePanel.style.flex = "0 0 auto";
+      // 레이아웃 반영을 위해 강제 리플로우
+      void sidePanel.offsetHeight;
+      const filters = document.getElementById("typeFilterOptions");
+      if (filters) {
+        const fb = filters.getBoundingClientRect().bottom;
+        const limit = appH - 8; // 바닥 여백 8px
+        if (fb > limit) {
+          next = Math.max(appH * 0.12, next - (fb - limit));
+          sidePanel.style.maxHeight = next + "px";
+        }
+      }
+      // 저장값 갱신 (다시 펼칠 때 복원용)
+      savedMaxHeight = sidePanel.style.maxHeight;
+      savedFlex = sidePanel.style.flex;
+      return next;
     }
 
     function onDown(e) {
@@ -2247,7 +2295,6 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
         longPressTimer = null;
         if (!active || cancelled) return;
         longPressReady = true;
-        // 크기 조절 모드 진입: 접혀 있으면 펼침
         if (sidePanel.classList.contains("is-collapsed")) {
           setCollapsed(false);
         }
@@ -2265,7 +2312,6 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
       const dy = e.clientY - startY;
       const dist = Math.hypot(dx, dy);
 
-      // 1초 전에 움직이면 길게 누르기 취소 (탭도 하지 않음)
       if (!longPressReady && dist > MOVE_CANCEL_PX) {
         clearLongTimer();
         cancelled = true;
@@ -2274,14 +2320,15 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
       if (!longPressReady) return;
 
       resizing = true;
-      const appH = window.innerHeight || 600;
       const appW = window.innerWidth || 400;
 
       if (axis === "y") {
-        let next = startH + dy;
-        next = Math.max(appH * 0.12, Math.min(appH * 0.7, next));
-        sidePanel.style.maxHeight = next + "px";
-        sidePanel.style.flex = "0 0 auto";
+        // 아래로 끌면 목록 커짐 (dy>0)
+        const desired = startH + dy;
+        clampHeightByTypeFilters(desired);
+        if (map && typeof map.relayout === "function") {
+          try { map.relayout(); } catch (_) {}
+        }
       } else {
         let next = startW + dx;
         next = Math.max(180, Math.min(appW * 0.55, next));
@@ -2289,8 +2336,12 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
         sidePanel.style.flex = "0 0 auto";
         sidePanel.style.maxWidth = next + "px";
         sidePanel.style.minWidth = next + "px";
+        savedWidth = next + "px";
+        savedMinWidth = next + "px";
+        savedMaxWidth = next + "px";
+        savedFlex = "0 0 auto";
+        relayoutMapSoon();
       }
-      relayoutMapSoon();
     }
 
     function onUp(e) {
@@ -2306,7 +2357,6 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
         relayoutMapSoon();
         return;
       }
-      // 짧게 탭만 접기/펼치기
       if (!cancelled && !longPressReady) {
         toggle();
       }
