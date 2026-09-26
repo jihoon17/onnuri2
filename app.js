@@ -255,10 +255,10 @@ function initMap() {
   let pinchActive = false;
   let pinchStartDist = 0;
   let pinchLastStepAt = 0;
-  // 손가락을 더 많이 움직여야 1단계 (덜 민감 → 더 세밀하게)
-  const PINCH_IN_RATIO = 1.32;   // ~32% 벌려야 확대 1단계
-  const PINCH_OUT_RATIO = 0.76;  // ~24% 모아야 축소 1단계
-  const PINCH_STEP_COOLDOWN_MS = 140; // 단계 사이 최소 간격
+  // 손가락을 더 많이 움직여야 1단계 (감도 추가 하향)
+  const PINCH_IN_RATIO = 1.55;   // ~55% 벌려야 확대 1단계
+  const PINCH_OUT_RATIO = 0.65;  // ~35% 모아야 축소 1단계
+  const PINCH_STEP_COOLDOWN_MS = 180; // 단계 사이 최소 간격
 
   const LONG_PRESS_MS = 550;
   const MOVE_CANCEL_PX = 10;
@@ -314,7 +314,7 @@ function initMap() {
   const isInteractiveTarget = (target) => {
     if (!target || !target.closest) return false;
     return !!target.closest(
-      ".market-label, button, a, input, label, .suggest-item, .addr-checklist-panel, .type-chip, .mic-btn, .map-zoom, .map-joystick, .panel-toggle"
+      ".market-label, button, a, input, label, .suggest-item, .addr-checklist-panel, .type-chip, .mic-btn, .map-zoom, .map-joystick, .panel-toggle, .map-type-filters"
     );
   };
 
@@ -1765,7 +1765,7 @@ function renderInitialOverview() {
   if (!activeOrdered.length) {
     title.textContent = "선택된 유형 없음";
     badge.textContent = "0곳";
-    list.innerHTML = `<div class="result-empty">지도 표시 기준에서 유형을 하나 이상 선택해주세요.</div>`;
+    list.innerHTML = `<div class="result-empty">유형(전통시장·상점가·골목형상점가)을 하나 이상 선택해주세요.</div>`;
     return;
   }
 

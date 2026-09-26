@@ -491,47 +491,35 @@ html, body {
   padding: 24px;
 }
 
-/* 지도 표시 기준 (범례) */
-.view-criteria {
-  background: var(--primary);
-  color: var(--white);
-  padding: 8px 14px 8px;
-}
-.view-criteria .vc-title {
-  font-weight: 700;
-  font-size: 13.5px;
-  margin-bottom: 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.vc-title-note {
-  font-weight: 400;
-  font-size: 11px;
-  color: rgba(255,255,255,0.8);
-}
-.vc-options {
+/* 유형 필터: 지도/스카이뷰 버튼 바로 아래 (지도 위 오버레이) */
+.map-type-filters {
+  position: absolute;
+  left: 8px;
+  top: 52px; /* MapTypeControl(지도/스카이뷰) 아래 */
+  z-index: 34;
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
 }
 
-/* 유형별 클릭 필터 버튼 (전통시장/상점가/골목형상점가) */
+/* 유형별 클릭 필터 버튼 */
 .type-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.55);
-  background: rgba(255,255,255,0.12);
-  color: var(--white);
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(0,0,0,0.12);
+  background: rgba(255,255,255,0.95);
+  color: #333;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   opacity: 0.55;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
   transition: opacity 0.15s ease, background 0.15s ease;
+  white-space: nowrap;
 }
 .type-chip::before {
   content: "";
@@ -539,31 +527,17 @@ html, body {
   width: 12px;
   height: 12px;
   border-radius: 3px;
-  background: var(--chip-color, #ffffff);
-  border: 1px solid rgba(255,255,255,0.8);
+  background: var(--chip-color, #94a3b8);
+  border: 1px solid rgba(0,0,0,0.15);
+  flex-shrink: 0;
 }
 .type-chip.active {
   opacity: 1;
-  background: rgba(255,255,255,0.22);
+  background: #fff;
+  border-color: rgba(0,0,0,0.18);
 }
 .type-chip:hover {
   opacity: 1;
-}
-
-.vc-legend {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  margin-left: 4px;
-  white-space: nowrap;
-}
-.vc-swatch {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
-  border: 1px solid rgba(255,255,255,0.6);
 }
 
 /* 상점가 명칭 라벨(커스텀 오버레이) */

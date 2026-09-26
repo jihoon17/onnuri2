@@ -4,10 +4,31 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>상점가 위치 검색 지도</title>
-<!-- v20260926e -->
-<link rel="stylesheet" href="style.css?v=20260926e">
+<!-- v20260926f -->
+<link rel="stylesheet" href="style.css?v=20260926f">
 <style>
-  /* ===== 강제 오버라이드 v20260926e ===== */
+  /* ===== 강제 오버라이드 v20260926f ===== */
+  .map-type-filters {
+    position: absolute !important;
+    left: 8px !important;
+    top: 52px !important;
+    z-index: 34 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 6px !important;
+  }
+  .map-type-filters .type-chip {
+    background: rgba(255,255,255,0.95) !important;
+    color: #333 !important;
+    border: 1px solid rgba(0,0,0,0.12) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12) !important;
+    opacity: 0.55 !important;
+  }
+  .map-type-filters .type-chip.active {
+    opacity: 1 !important;
+    background: #fff !important;
+  }
   .panel-toggle-text { display: none !important; }
   .panel-toggle {
     display: flex !important;
@@ -244,7 +265,13 @@
   <div class="map-panel">
     <div class="map-wrap">
       <div id="map"></div>
-      <!-- 모바일: 지도 상단 중앙 화살표 — ▲/▼ 모두 지도 위에 떠서 양옆이 지도로 보임 -->
+      <!-- 유형 필터: 지도/스카이뷰 버튼 바로 아래 (제목 없음) -->
+      <div class="map-type-filters" id="typeFilterOptions">
+        <button type="button" class="type-chip active" data-type="전통시장" style="--chip-color:#f5c518">전통시장</button>
+        <button type="button" class="type-chip active" data-type="상점가" style="--chip-color:#3fae5a">상점가</button>
+        <button type="button" class="type-chip active" data-type="골목형상점가" style="--chip-color:#3b82f6">골목형상점가</button>
+      </div>
+      <!-- 모바일: 지도 상단 중앙 화살표 -->
       <button type="button" class="panel-toggle panel-toggle--bottom" id="panelToggleBottom" aria-expanded="true" title="목록 접기/펼치기" aria-label="목록 접기">
         <span class="panel-toggle-icon" aria-hidden="true">▲</span>
       </button>
@@ -252,7 +279,7 @@
       <button type="button" class="panel-toggle panel-toggle--side" id="panelToggleSide" aria-expanded="true" title="목록 접기/펼치기" aria-label="목록 접기">
         <span class="panel-toggle-icon" aria-hidden="true">◀</span>
       </button>
-      <!-- 커스텀 줌 (+/−) — 회색 글자 없음, PC/패드에서 2배 -->
+      <!-- 커스텀 줌 (+/−) -->
       <div class="map-zoom" id="mapZoom" aria-label="지도 확대 축소">
         <button type="button" class="map-zoom-btn" id="zoomInBtn" title="확대" aria-label="확대">+</button>
         <button type="button" class="map-zoom-btn" id="zoomOutBtn" title="축소" aria-label="축소">−</button>
@@ -264,16 +291,6 @@
         </div>
       </div>
     </div>
-
-    <!-- 지도를 볼 기준 (유형별 클릭 필터) -->
-    <div class="view-criteria">
-      <div class="vc-title">지도 표시 기준</div>
-      <div class="vc-options" id="typeFilterOptions">
-        <button type="button" class="type-chip active" data-type="전통시장" style="--chip-color:#f5c518">전통시장</button>
-        <button type="button" class="type-chip active" data-type="상점가" style="--chip-color:#3fae5a">상점가</button>
-        <button type="button" class="type-chip active" data-type="골목형상점가" style="--chip-color:#3b82f6">골목형상점가</button>
-      </div>
-    </div>
   </div>
 
 </div>
@@ -281,6 +298,6 @@
 <!-- 엑셀 파싱 라이브러리 (SheetJS) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 기능 로직 v20260924c -->
-<script src="app.js?v=20260926e"></script>
+<script src="app.js?v=20260926f"></script>
 </body>
 </html>
