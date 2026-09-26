@@ -2238,7 +2238,7 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
     let resizing = false;
     let cancelled = false;
     let longPressTimer = null;
-    const LONG_PRESS_MS = 800;
+    const LONG_PRESS_MS = 400;
     const MOVE_CANCEL_PX = 14;
 
     function clearLongTimer() {
