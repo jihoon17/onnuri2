@@ -192,6 +192,22 @@
     border: none !important;
     box-shadow: none !important;
   }
+
+  /* 핵심 수정: 접힌 상태에서는 화살표 줄이 자기 공간을 차지하지 않게 하고
+     지도 위에 겹치는 오버레이로 띄워서, 화살표 옆 좌우가 실제 지도로 보이게 함 */
+  .side-panel { position: relative !important; }
+  .side-panel.is-collapsed .result-section {
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: 100% !important;
+    height: auto !important;
+    z-index: 30 !important;
+    pointer-events: none !important;
+  }
+  .side-panel.is-collapsed .result-section .panel-toggle--bottom {
+    pointer-events: auto !important;
+  }
 }
 </style>
 

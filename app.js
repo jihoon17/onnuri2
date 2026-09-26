@@ -259,7 +259,7 @@ function initMap() {
   let pinchStepTimer = null;     // 순차 setLevel 타이머
   let pinchStepping = false;
   // 거리 비율 → 레벨 변화. SENS=1.5 → 약 1.5배 벌리면 1단계
-  const PINCH_LEVEL_SENS = 1.5;
+  const PINCH_LEVEL_SENS = 0.9;
   // + 버튼 연타 간격과 비슷하게 (지도·구역이 같이 따라오도록)
   const PINCH_STEP_MS = 260;
 
