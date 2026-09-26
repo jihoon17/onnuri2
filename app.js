@@ -285,7 +285,7 @@ function initMap() {
     const dy = touchPanPendingDy;
     touchPanPendingDx = 0;
     touchPanPendingDy = 0;
-    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return; // 미세 이동 무시 → 끊김 완화
     try {
       const proj = map.getProjection();
       const center = map.getCenter();
@@ -722,6 +722,18 @@ function fitBoundsToPaths(paths) {
 /* =========================================================
    4. 구역(배경) 레이어 - 항상 모든 구역을 파란색 계열로 표시
    ========================================================= */
+/** 좌표가 너무 많으면 간추려 그리기 부하 감소 (성능) */
+function simplifyCoords(coords, maxPts) {
+  if (!coords || coords.length <= maxPts) return coords;
+  const step = Math.ceil(coords.length / maxPts);
+  const out = [];
+  for (let i = 0; i < coords.length; i += step) out.push(coords[i]);
+  const first = coords[0];
+  const last = out[out.length - 1];
+  if (!last || last.lat !== first.lat || last.lng !== first.lng) out.push(first);
+  return out;
+}
+
 function drawAllZonesBase() {
   Object.values(zoneOverlaysByMarket).flat().forEach(p => p.setMap(null));
   zoneOverlaysByMarket = {};
@@ -731,15 +743,16 @@ function drawAllZonesBase() {
     const colors = getTypeColor(m.type);
     const visible = activeTypes.has(m.type) ? map : null;
     const polygons = zones.map(z => {
-      const path = toLatLngPath(z.coords);
+      const simplified = simplifyCoords(z.coords, 48);
+      const path = toLatLngPath(simplified);
       return new kakao.maps.Polygon({
         map: visible,
         path,
-        strokeWeight: 2,
+        strokeWeight: 1,
         strokeColor: colors.base,
-        strokeOpacity: 0.9,
+        strokeOpacity: 0.85,
         fillColor: colors.base,
-        fillOpacity: 0.4,
+        fillOpacity: 0.35,
         zIndex: 1
       });
     });
@@ -1017,7 +1030,7 @@ function createMarkerImage(color) {
    ========================================================= */
 // 라벨이 보이는 최대 줌 레벨 (이보다 숫자가 크면 = 더 줌아웃되면 라벨 숨김, 마커는 유지)
 // 카카오맵: level 숫자가 클수록 더 멀리 보임
-const LABEL_MAX_LEVEL = 6;
+const LABEL_MAX_LEVEL = 5; // 줌 아웃 시 라벨 더 빨리 숨겨 부하 감소
 
 function updateLabelVisibilityByZoom() {
   if (!map) return;
@@ -2152,37 +2165,130 @@ document.getElementById("searchInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") handleSearch();
 });
 
-/* -------- 결과 목록 접기/펼치기 (화살표만) -------- */
+/* -------- 결과 목록 접기/펼치기 + 화살표 드래그로 크기 조절 -------- */
 (function setupPanelCollapse() {
   const sidePanel = document.getElementById("sidePanel");
   const btnBottom = document.getElementById("panelToggleBottom");
   const btnSide = document.getElementById("panelToggleSide");
   if (!sidePanel) return;
 
+  function relayoutMapSoon() {
+    if (map && typeof map.relayout === "function") {
+      setTimeout(() => {
+        try { map.relayout(); } catch (_) {}
+      }, 40);
+    }
+  }
+
   function setCollapsed(collapsed) {
     sidePanel.classList.toggle("is-collapsed", collapsed);
+    if (collapsed) {
+      // 접을 때 인라인 크기 초기화
+      sidePanel.style.maxHeight = "";
+      sidePanel.style.width = "";
+      sidePanel.style.flex = "";
+    }
     [btnBottom, btnSide].forEach((btn) => {
       if (!btn) return;
       btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
       btn.setAttribute("aria-label", collapsed ? "목록 펼치기" : "목록 접기");
       btn.title = collapsed ? "목록 펼치기" : "목록 접기";
       const icon = btn.querySelector(".panel-toggle-icon");
-      // 모바일: ▲ 접기 / ▼ 펼치기  |  PC: ◀ 접기 / ▶ 펼치기
       if (icon) {
         if (btn === btnBottom) icon.textContent = collapsed ? "▼" : "▲";
         else icon.textContent = collapsed ? "▶" : "◀";
       }
     });
-    if (map && typeof map.relayout === "function") {
-      setTimeout(() => {
-        try { map.relayout(); } catch (_) {}
-      }, 50);
-    }
+    relayoutMapSoon();
   }
 
   const toggle = () => setCollapsed(!sidePanel.classList.contains("is-collapsed"));
-  if (btnBottom) btnBottom.addEventListener("click", toggle);
-  if (btnSide) btnSide.addEventListener("click", toggle);
+
+  // 화살표: 짧게 탭 = 접기/펼치기, 누른 채 드래그 = 패널 크기 조절
+  function bindResizeHandle(btn, axis) {
+    if (!btn) return;
+    let startX = 0, startY = 0;
+    let startH = 0, startW = 0;
+    let dragging = false;
+    let active = false;
+    let pointerId = null;
+    const DRAG_THRESHOLD = 8;
+
+    function onDown(e) {
+      if (e.button != null && e.button !== 0) return;
+      active = true;
+      dragging = false;
+      pointerId = e.pointerId != null ? e.pointerId : "touch";
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = sidePanel.getBoundingClientRect();
+      startH = rect.height;
+      startW = rect.width;
+      // 접힌 상태에서 드래그 시작하면 먼저 펼침
+      if (sidePanel.classList.contains("is-collapsed")) {
+        setCollapsed(false);
+        const r2 = sidePanel.getBoundingClientRect();
+        startH = r2.height;
+        startW = r2.width;
+      }
+      try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    }
+
+    function onMove(e) {
+      if (!active) return;
+      if (e.pointerId != null && pointerId !== "touch" && e.pointerId !== pointerId) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      dragging = true;
+      const appH = window.innerHeight || 600;
+      const appW = window.innerWidth || 400;
+
+      if (axis === "y") {
+        // 모바일: 세로로 패널 높이 조절 (아래로 끌면 목록 커짐)
+        let next = startH + dy;
+        next = Math.max(appH * 0.12, Math.min(appH * 0.7, next));
+        sidePanel.style.maxHeight = next + "px";
+        sidePanel.style.flex = "0 0 auto";
+      } else {
+        // PC: 가로로 패널 너비 조절 (오른쪽으로 끌면 목록 커짐)
+        let next = startW + dx;
+        next = Math.max(180, Math.min(appW * 0.55, next));
+        sidePanel.style.width = next + "px";
+        sidePanel.style.flex = "0 0 auto";
+        sidePanel.style.maxWidth = next + "px";
+        sidePanel.style.minWidth = next + "px";
+      }
+      relayoutMapSoon();
+    }
+
+    function onUp(e) {
+      if (!active) return;
+      active = false;
+      try { btn.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (dragging) {
+        // 드래그로 크기 조절했으면 접기 토글은 하지 않음
+        dragging = false;
+        relayoutMapSoon();
+        return;
+      }
+      toggle();
+    }
+
+    btn.addEventListener("pointerdown", onDown);
+    btn.addEventListener("pointermove", onMove);
+    btn.addEventListener("pointerup", onUp);
+    btn.addEventListener("pointercancel", onUp);
+    // click 기본 토글은 막고 pointerup에서 처리
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+  }
+
+  bindResizeHandle(btnBottom, "y");
+  bindResizeHandle(btnSide, "x");
 
   // 핸드폰: 처음에는 목록을 접은 상태(▼)로 시작
   const isMobile = window.matchMedia && window.matchMedia("(max-width: 599px)").matches;
