@@ -9,8 +9,8 @@ const KAKAO_APP_KEY = "01a0f8272692845e09fe8d4c402e6317";
 // 네이버 개발자센터(https://developers.naver.com) > 검색 > 지역 검색
 // Client ID / Client Secret 을 넣으면 상호 검색에 네이버 데이터도 함께 사용합니다.
 // ※ 브라우저 CORS로 막히면 서버 프록시가 필요할 수 있습니다. (비워 두면 카카오만 사용)
-const NAVER_CLIENT_ID = "";
-const NAVER_CLIENT_SECRET = "";
+const NAVER_CLIENT_ID = "e9q8og3tdc";
+const NAVER_CLIENT_SECRET = "boIv1PkBWnjjdZHfBWf3C7eEltB0vcjGnhsfsRAH";
 
 // 엑셀 원본 파일 경로 (이 index.html과 같은 폴더/레포에 올려주세요)
 const EXCEL_FILE_URL = "mapData_v1.xlsx";
