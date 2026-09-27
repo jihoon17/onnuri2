@@ -6,6 +6,12 @@
 // 카카오 개발자센터에서 발급받은 JavaScript 키
 const KAKAO_APP_KEY = "01a0f8272692845e09fe8d4c402e6317";
 
+// 네이버 개발자센터(https://developers.naver.com) > 검색 > 지역 검색
+// Client ID / Client Secret 을 넣으면 상호 검색에 네이버 데이터도 함께 사용합니다.
+// ※ 브라우저 CORS로 막히면 서버 프록시가 필요할 수 있습니다. (비워 두면 카카오만 사용)
+const NAVER_CLIENT_ID = "";
+const NAVER_CLIENT_SECRET = "";
+
 // 엑셀 원본 파일 경로 (이 index.html과 같은 폴더/레포에 올려주세요)
 const EXCEL_FILE_URL = "mapData_v1.xlsx";
 
@@ -1140,10 +1146,35 @@ function drawMarketLabels() {
       }
     }, { passive: true });
 
+    // 마우스: 좌클릭 후 이동하면 강조하지 않음 (지도만 이동)
+    content.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      labelTouchStartXY = { x: e.clientX, y: e.clientY };
+      labelFingerMoved = false;
+    });
+    content.addEventListener("mousemove", (e) => {
+      if (!labelTouchStartXY || (e.buttons & 1) === 0) return;
+      const dist = Math.hypot(e.clientX - labelTouchStartXY.x, e.clientY - labelTouchStartXY.y);
+      if (dist > LABEL_DRAG_PX) {
+        labelFingerMoved = true;
+        mapFingerDragging = true;
+      }
+    });
+    content.addEventListener("mouseup", (e) => {
+      if (e.button !== 0) return;
+      if (labelFingerMoved || mapFingerDragging) {
+        labelTouchStartXY = null;
+        // 드래그 종료 직후 click 이벤트 방지용
+        setTimeout(() => { mapFingerDragging = false; labelFingerMoved = false; }, 50);
+        return;
+      }
+      labelTouchStartXY = null;
+    });
     content.addEventListener("click", (e) => {
       if (mapFingerDragging || labelFingerMoved) {
         e.preventDefault();
         e.stopPropagation();
+        labelFingerMoved = false;
         return;
       }
       onLabelActivate(e);
@@ -1934,6 +1965,137 @@ function isSejongPlace(place) {
 }
 
 /**
+ * 네이버 지역 검색 (상호) — 세종 결과만, 카카오 place 형식으로 변환
+ * Client ID/Secret이 비어 있으면 빈 배열
+ */
+function stripHtmlTags(s) {
+  return String(s || "").replace(/<[^>]+>/g, "").trim();
+}
+
+function isSejongNaverItem(item) {
+  const addr = `${item.address || ""} ${item.roadAddress || ""}`;
+  if (/대전|공주|청주|천안|아산|논산|계룡|금산|부여|서천|청양|홍성|예산|당진|보령|서산|태안|충남|충북/.test(addr)) {
+    if (!/세종특별자치시|세종시|(^|\s)세종(\s|시)/.test(addr)) return false;
+  }
+  return /세종특별자치시|세종시|(^|\s)세종(\s|시)/.test(addr);
+}
+
+function naverItemToKakaoPlace(item) {
+  // mapx/mapy: 경도·위도 × 1e7
+  const lng = parseFloat(item.mapx) / 1e7;
+  const lat = parseFloat(item.mapy) / 1e7;
+  return {
+    place_name: stripHtmlTags(item.title),
+    address_name: item.address || "",
+    road_address_name: item.roadAddress || "",
+    x: String(lng),
+    y: String(lat),
+    phone: item.telephone || "",
+    _source: "naver"
+  };
+}
+
+function searchNaverLocalSejong(query) {
+  return new Promise((resolve) => {
+    if (!NAVER_CLIENT_ID || !NAVER_CLIENT_SECRET) {
+      resolve([]);
+      return;
+    }
+    const q = (query || "").trim();
+    if (!q) {
+      resolve([]);
+      return;
+    }
+    const variants = [];
+    variants.push(q);
+    if (!/세종/.test(q)) {
+      variants.push(`세종 ${q}`);
+      variants.push(`세종특별자치시 ${q}`);
+    }
+    const headers = {
+      "X-Naver-Client-Id": NAVER_CLIENT_ID,
+      "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
+    };
+
+    function tryVariant(i, acc) {
+      if (i >= variants.length) {
+        // 중복 제거 (이름+좌표)
+        const seen = new Set();
+        const unique = [];
+        acc.forEach((p) => {
+          const key = `${p.place_name}|${Number(p.x).toFixed(5)}|${Number(p.y).toFixed(5)}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          unique.push(p);
+        });
+        resolve(unique);
+        return;
+      }
+      const keyword = variants[i];
+      const url = `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(keyword)}&display=15&start=1&sort=random`;
+      fetch(url, { headers })
+        .then((r) => {
+          if (!r.ok) throw new Error("naver http " + r.status);
+          return r.json();
+        })
+        .then((data) => {
+          const items = (data && data.items) || [];
+          const mapped = items.filter(isSejongNaverItem).map(naverItemToKakaoPlace);
+          tryVariant(i + 1, acc.concat(mapped));
+        })
+        .catch((err) => {
+          console.warn("[네이버 지역검색]", err && err.message ? err.message : err);
+          tryVariant(i + 1, acc);
+        });
+    }
+    tryVariant(0, []);
+  });
+}
+
+/**
+ * 카카오 + 네이버 상호 검색을 합쳐 세종 결과만 반환
+ */
+function searchPlacesMergedSejong(query, callback) {
+  let kakaoDone = false;
+  let naverDone = false;
+  let kakaoPlaces = [];
+  let naverPlaces = [];
+  let kakaoMeta = { status: null, tried: [] };
+
+  function finish() {
+    if (!kakaoDone || !naverDone) return;
+    const seen = new Set();
+    const merged = [];
+    // 네이버 우선 (상호 데이터가 더 많은 편), 그다음 카카오
+    naverPlaces.concat(kakaoPlaces).forEach((p) => {
+      const key = `${(p.place_name || "").replace(/\s+/g, "")}|${Number(p.x).toFixed(4)}|${Number(p.y).toFixed(4)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      merged.push(p);
+    });
+    callback(merged, {
+      status: merged.length ? "OK" : (kakaoMeta.status || "ZERO_RESULT"),
+      tried: kakaoMeta.tried || [],
+      naverCount: naverPlaces.length,
+      kakaoCount: kakaoPlaces.length
+    });
+  }
+
+  searchPlacesInSejong(query, (places, meta) => {
+    kakaoPlaces = places || [];
+    kakaoMeta = meta || kakaoMeta;
+    kakaoDone = true;
+    finish();
+  });
+
+  searchNaverLocalSejong(query).then((places) => {
+    naverPlaces = places || [];
+    naverDone = true;
+    finish();
+  });
+}
+
+/**
  * 세종시 한정 상호(장소) 키워드 검색
  * - 사용자는 「진성 아구찜」만 입력해도 됨
  * - 여러 방식으로 재시도 후 세종 결과만 반환
@@ -2139,7 +2301,7 @@ function handleSearch() {
 
   // 1) 상호명(장소) 검색 — 세종시 한정 (「세종」은 자동 처리)
   // 2) 없으면 주소 지오코딩 (상호명은 보통 주소 검색에 안 걸리므로 안내 문구 구분)
-  searchPlacesInSejong(q, (places, meta) => {
+  searchPlacesMergedSejong(q, (places, meta) => {
     if (places && places.length) {
       renderPlaceSearchResults(places, q);
       return;
@@ -2152,7 +2314,7 @@ function handleSearch() {
       return;
     }
 
-    // 상호 검색 실패 안내 (API 오류 vs 결과 없음)
+    // 상호 검색 실패 안내
     if (meta && meta.status === kakao.maps.services.Status.ERROR) {
       showSearchNoResult(
         "상호 검색에 실패했습니다. 카카오 개발자 콘솔에서 카카오맵(로컬) API가 활성화되어 있는지, 도메인이 등록되어 있는지 확인해주세요."
@@ -2164,8 +2326,11 @@ function handleSearch() {
       return;
     }
 
+    const naverHint = (!NAVER_CLIENT_ID || !NAVER_CLIENT_SECRET)
+      ? " (네이버 지역검색 키를 app.js에 넣으면 상호 검색이 더 잘 됩니다)"
+      : "";
     showSearchNoResult(
-      `「${q}」에 해당하는 세종시 상호를 찾지 못했습니다. 카카오맵에 등록된 이름과 같은지 확인하거나, 지번·도로명 주소로 검색해보세요.`
+      `「${q}」에 해당하는 세종시 상호를 찾지 못했습니다. 상호명·지번·도로명 주소로 다시 검색해보세요.` + naverHint
     );
   });
 }
