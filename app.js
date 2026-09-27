@@ -9,8 +9,8 @@ const KAKAO_APP_KEY = "01a0f8272692845e09fe8d4c402e6317";
 // 네이버 개발자센터(https://developers.naver.com) > 검색 > 지역 검색
 // Client ID / Client Secret 을 넣으면 상호 검색에 네이버 데이터도 함께 사용합니다.
 // ※ 브라우저 CORS로 막히면 서버 프록시가 필요할 수 있습니다. (비워 두면 카카오만 사용)
-const NAVER_CLIENT_ID = "e9q8og3tdc";
-const NAVER_CLIENT_SECRET = "boIv1PkBWnjjdZHfBWf3C7eEltB0vcjGnhsfsRAH";
+const NAVER_CLIENT_ID = "";
+const NAVER_CLIENT_SECRET = "";
 
 // 엑셀 원본 파일 경로 (이 index.html과 같은 폴더/레포에 올려주세요)
 const EXCEL_FILE_URL = "mapData_v1.xlsx";
@@ -1973,11 +1973,18 @@ function stripHtmlTags(s) {
 }
 
 function isSejongNaverItem(item) {
-  const addr = `${item.address || ""} ${item.roadAddress || ""}`;
-  if (/대전|공주|청주|천안|아산|논산|계룡|금산|부여|서천|청양|홍성|예산|당진|보령|서산|태안|충남|충북/.test(addr)) {
-    if (!/세종특별자치시|세종시|(^|\s)세종(\s|시)/.test(addr)) return false;
+  const addr = `${item.address || ""} ${item.roadAddress || ""} ${stripHtmlTags(item.title)}`;
+  // 명백한 타 시·도는 제외 (주소에 세종이 같이 있으면 통과)
+  if (/대전광역시|공주시|청주시|천안시|아산시|논산시|계룡시|충청남도|충청북도/.test(addr) && !/세종/.test(addr)) {
+    return false;
   }
-  return /세종특별자치시|세종시|(^|\s)세종(\s|시)/.test(addr);
+  if (/세종특별자치시|세종시|(^|\s)세종(\s|시)/.test(addr)) return true;
+  // 주소 표기가 애매하면 좌표로 세종 범위 판별
+  const lng = parseFloat(item.mapx) / 1e7;
+  const lat = parseFloat(item.mapy) / 1e7;
+  if (!isFinite(lng) || !isFinite(lat)) return false;
+  // 세종시 대략 박스
+  return lng >= 127.12 && lng <= 127.45 && lat >= 36.38 && lat <= 36.72;
 }
 
 function naverItemToKakaoPlace(item) {
@@ -1991,6 +1998,7 @@ function naverItemToKakaoPlace(item) {
     x: String(lng),
     y: String(lat),
     phone: item.telephone || "",
+    category: item.category || "",
     _source: "naver"
   };
 }
@@ -1998,6 +2006,7 @@ function naverItemToKakaoPlace(item) {
 function searchNaverLocalSejong(query) {
   return new Promise((resolve) => {
     if (!NAVER_CLIENT_ID || !NAVER_CLIENT_SECRET) {
+      console.warn("[네이버] Client ID/Secret 이 비어 있습니다. app.js 상단을 확인하세요.");
       resolve([]);
       return;
     }
@@ -2007,11 +2016,12 @@ function searchNaverLocalSejong(query) {
       return;
     }
     const variants = [];
-    variants.push(q);
+    // 세종 접두를 먼저 시도
     if (!/세종/.test(q)) {
-      variants.push(`세종 ${q}`);
-      variants.push(`세종특별자치시 ${q}`);
+      variants.push("세종 " + q);
+      variants.push("세종특별자치시 " + q);
     }
+    variants.push(q);
     const headers = {
       "X-Naver-Client-Id": NAVER_CLIENT_ID,
       "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
@@ -2019,20 +2029,21 @@ function searchNaverLocalSejong(query) {
 
     function tryVariant(i, acc) {
       if (i >= variants.length) {
-        // 중복 제거 (이름+좌표)
         const seen = new Set();
         const unique = [];
         acc.forEach((p) => {
-          const key = `${p.place_name}|${Number(p.x).toFixed(5)}|${Number(p.y).toFixed(5)}`;
+          const key = p.place_name + "|" + Number(p.x).toFixed(5) + "|" + Number(p.y).toFixed(5);
           if (seen.has(key)) return;
           seen.add(key);
           unique.push(p);
         });
+        console.log("[네이버 지역검색] 최종 세종 결과", unique.length, unique.map((p) => p.place_name));
         resolve(unique);
         return;
       }
       const keyword = variants[i];
-      const url = `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(keyword)}&display=15&start=1&sort=random`;
+      // display 최대값 5 (15로 넣으면 API 오류)
+      const url = "https://openapi.naver.com/v1/search/local.json?query=" + encodeURIComponent(keyword) + "&display=5&start=1&sort=random";
       fetch(url, { headers })
         .then((r) => {
           if (!r.ok) throw new Error("naver http " + r.status);
@@ -2040,11 +2051,13 @@ function searchNaverLocalSejong(query) {
         })
         .then((data) => {
           const items = (data && data.items) || [];
+          console.log("[네이버 지역검색] 키워드=", keyword, "원본", items.length, "건", items.map((it) => stripHtmlTags(it.title)));
           const mapped = items.filter(isSejongNaverItem).map(naverItemToKakaoPlace);
+          console.log("[네이버 지역검색] 세종 필터 후", mapped.length, "건");
           tryVariant(i + 1, acc.concat(mapped));
         })
         .catch((err) => {
-          console.warn("[네이버 지역검색]", err && err.message ? err.message : err);
+          console.warn("[네이버 지역검색 오류]", err && err.message ? err.message : err);
           tryVariant(i + 1, acc);
         });
     }
@@ -2052,9 +2065,6 @@ function searchNaverLocalSejong(query) {
   });
 }
 
-/**
- * 카카오 + 네이버 상호 검색을 합쳐 세종 결과만 반환
- */
 function searchPlacesMergedSejong(query, callback) {
   let kakaoDone = false;
   let naverDone = false;
